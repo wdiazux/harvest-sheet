@@ -22,8 +22,9 @@ buildah copy $ctr requirements.txt /app/
 buildah copy $ctr crontab.txt /app/
 # Copy only .env.example for documentation/reference (do NOT bake secrets into the image)
 buildah copy $ctr .env.example /app/ || echo ".env.example not found, skipping."
-# Ensure output directory exists
+# Ensure output and log file exist
 buildah run $ctr -- mkdir -p /app/output
+buildah run $ctr -- touch /app/cron.log
 
 # 5. Install Python dependencies (including optional dotenv)
 buildah run $ctr -- pip install --no-cache-dir -r /app/requirements.txt
