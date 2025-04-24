@@ -53,6 +53,6 @@ buildah config --cmd '["/bin/sh", "-c", "cron && tail -F /app/cron.log"]' $ctr
 echo '# Healthcheck: pgrep cron || exit 1 (interval=1m, timeout=3s)' > /dev/null
 
 # 10. Commit the image
-buildah commit $ctr harvest_script:latest
+buildah commit $ctr harvest-sheet:latest
 
-echo "Image built and tagged as harvest_script:latest."
+echo "Image built and tagged as harvest-sheet:latest."

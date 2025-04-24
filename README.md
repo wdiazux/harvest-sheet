@@ -114,8 +114,8 @@ To upload to Google Sheets, you **must** use a Google Cloud Service Account (not
 
 ### 1. Clone the repository
 ```sh
-git clone <your-repo-url>
-cd harvest_script
+git clone https://github.com/wdiaz/harvest-sheet.git
+cd harvest-sheet
 ```
 
 ### 2. (Optional) Enter the Nix Shell for Python/Dev Dependencies
@@ -155,7 +155,7 @@ cp .env.example .env
    - Install dependencies
    - Copy your code and `.env.example` (not `.env`)
    - Inject all variables from your `.env` file as environment variables in the image
-   - Commit the image as `harvest_script:latest`
+   - Commit the image as `harvest-sheet:latest`
 
 ---
 
@@ -164,12 +164,12 @@ cp .env.example .env
 You can run the image with Podman (or Docker, if you export the image):
 
 ```sh
-podman run --rm harvest_script:latest
+podman run --rm harvest-sheet:latest
 ```
 
 - If you did **not** bake secrets into the image, use:
   ```sh
-  podman run --rm --env-file .env harvest_script:latest
+  podman run --rm --env-file .env harvest-sheet:latest
   ```
 
 ---

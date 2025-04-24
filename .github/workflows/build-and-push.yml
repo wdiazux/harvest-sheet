@@ -31,8 +31,8 @@ jobs:
 
       - name: Tag image for GHCR
         run: |
-          buildah tag harvest_script:latest ghcr.io/${{ github.repository_owner }}/harvest_script:latest
+          buildah tag harvest-sheet:latest ghcr.io/${{ github.repository_owner }}/harvest-sheet:latest
 
       - name: Push image to GHCR
         run: |
-          buildah push ghcr.io/${{ github.repository_owner }}/harvest_script:latest
+          buildah push ghcr.io/${{ github.repository_owner }}/harvest-sheet:latest
