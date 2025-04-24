@@ -36,9 +36,6 @@ version: '3.8'
 services:
   harvest-sheet:
     image: ghcr.io/wdiazux/harvest-sheet:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     env_file:
       - .env
     volumes:
