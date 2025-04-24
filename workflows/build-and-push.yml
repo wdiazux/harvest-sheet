@@ -1,0 +1,38 @@
+name: Build and Push Container Image
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install Buildah and Podman (required for build and push)
+      - name: Install Buildah and Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y buildah podman
+
+      - name: Log in to GitHub Container Registry
+        run: echo ${{ secrets.GITHUB_TOKEN }} | buildah login --username ${{ github.actor }} --password-stdin ghcr.io
+
+      - name: Build image with buildah.sh
+        run: |
+          chmod +x ./buildah.sh
+          ./buildah.sh
+
+      - name: Tag image for GHCR
+        run: |
+          buildah tag harvest_script:latest ghcr.io/${{ github.repository_owner }}/harvest_script:latest
+
+      - name: Push image to GHCR
+        run: |
+          buildah push ghcr.io/${{ github.repository_owner }}/harvest_script:latest
