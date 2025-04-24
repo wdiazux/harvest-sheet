@@ -19,12 +19,30 @@ Below is an example of the workflow:
 
 - Converts time-tracking data to CSV
 - Optionally uploads results to Google Sheets
+- Supports both one-off and scheduled (cron) runs
 
-> **Tip:** For most users, simply configure your `.env` file and run the container as shown below.
+> **Tip:** For most users, simply configure your `.env` file and run the container as shown below. For advanced usage, scheduling, and troubleshooting, see the detailed guide below.
 
 ---
 
-### Using Docker Compose
+## Usage Guide: Harvest Sheet Docker Image
+
+This guide explains how to use the `ghcr.io/wdiazux/harvest-sheet:latest` image for both manual and scheduled (cron) runs, including advanced options and troubleshooting.
+
+### Quick Start: One-off Run
+
+You can run the image directly to fetch and convert Harvest data to CSV (and optionally upload to Google Sheets):
+
+```sh
+docker run --rm \
+  --env-file .env \
+  -v $(pwd)/output:/app/output \
+  ghcr.io/wdiazux/harvest-sheet:latest
+```
+- Ensure your `.env` file is in the current directory.
+- Output will be written to the `output` folder.
+
+### Automated Runs with Docker Compose
 
 You can also run the project using Docker Compose for easier management:
 
@@ -43,20 +61,45 @@ services:
     restart: unless-stopped
 ```
 
-**Example usage:**
-
-```sh
-docker compose up -d
-```
-
 This will start the service. Output files (if any) will be written to the `output` directory.
-
-**Note:**
-- The `.env` file is required for configuration; see `.env.example` for all available variables.
-- The Buildah script (`buildah.sh`) is provided for advanced/custom builds, and ensures all required files and directories are present in the image.
 
 - To stop the service: `docker compose down`
 - To apply updates after changes: `docker compose up`
+
+### Running on a Schedule (Cron)
+
+The image includes cron support for scheduled automation. By default, the container uses `/app/crontab.txt`:
+
+```
+# Run the Harvest script at 6:00 AM and 6:00 PM every day
+0 6,18 * * * /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1
+```
+
+#### To customize the schedule:
+1. Edit `crontab.txt` before building or mounting it into the container:
+   - To mount a custom crontab:
+     ```yaml
+     volumes:
+       - ./my-crontab.txt:/app/crontab.txt:ro
+     ```
+2. The container starts cron automatically and tails `/app/cron.log`.
+3. Logs are available in the `cron.log` file inside the container (or mount `/app/cron.log` to your host).
+
+### Environment Variables
+
+- See `.env.example` for all supported variables.
+- You can override variables at runtime with `-e VAR=value` or in your Compose file.
+
+### Advanced: Buildah & NixOS
+
+- Use `buildah.sh` for custom builds or to build on NixOS.
+- The script ensures cron, python, and all dependencies are installed, and registers the crontab.
+
+### Troubleshooting
+
+- **No output?** Check the logs: `docker logs <container>` or inspect `/app/cron.log`.
+- **Google Sheets upload fails?** Double-check your service account credentials and sharing permissions.
+- **Environment not loading?** Make sure `.env` is present and correctly formatted.
 
 ---
 
