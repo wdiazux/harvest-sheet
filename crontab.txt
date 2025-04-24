@@ -1,2 +1,2 @@
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1
+0 6,18 * * * /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1
