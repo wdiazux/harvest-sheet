@@ -1,4 +1,4 @@
-# Harvest Script: Buildah & NixOS Ready
+# Harvest Sheet
 
 This project provides a script to convert Harvest time-tracking data to CSV, with optional Google Sheets upload. The environment is designed to be reproducible and secure, leveraging Buildah for container builds and NixOS for development.
 
@@ -8,7 +8,6 @@ This project provides a script to convert Harvest time-tracking data to CSV, wit
 - [General Use](#general-use)
   - [How to Obtain API Credentials](#how-to-obtain-api-credentials)
   - [Google Service Account Credentials (for Sheets Upload)](#google-service-account-credentials-for-sheets-upload)
-- [Development](#development)
 
 ---
 
@@ -20,7 +19,6 @@ Below is an example of the workflow:
 
 - Converts time-tracking data to CSV
 - Optionally uploads results to Google Sheets
-- Secure and reproducible environment
 
 > **Tip:** For most users, simply configure your `.env` file and run the container as shown below.
 
@@ -134,7 +132,3 @@ To upload to Google Sheets, you **must** use a Google Cloud Service Account (not
     GOOGLE_SHEET_TAB_NAME=your_tab_name
     UPLOAD_TO_GOOGLE_SHEET=1
     ```
-
-**Official Docs:**
-- [Google Cloud: Creating and Managing Service Accounts](https://cloud.google.com/iam/docs/creating-managing-service-accounts)
-- [Google Sheets API Python Quickstart](https://developers.google.com/sheets/api/quickstart/python)
