@@ -37,14 +37,14 @@ You can also run the project using Docker Compose for easier management:
 version: '3.8'
 services:
   harvest-sheet:
-    image: harvest-sheet:latest
+    image: ghcr.io/wdiazux/harvest-sheet:latest
     build:
       context: .
       dockerfile: Dockerfile
     env_file:
       - .env
     volumes:
-      - ./output:/app/output # Adjust if your script writes output files
+      - ./output:/app/output # Optional
     restart: unless-stopped
 ```
 
