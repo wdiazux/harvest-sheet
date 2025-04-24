@@ -44,20 +44,24 @@ services:
     env_file:
       - .env
     volumes:
-      - ./output:/app/output # Optional
+      - ./output:/app/output  # Optional: Mounts output directory
     restart: unless-stopped
 ```
 
 **Example usage:**
 
 ```sh
-docker compose up --build
+docker compose up -d
 ```
 
-This will build the image (if needed) and start the service. Output files (if any) will be written to the `output` directory.
+This will start the service. Output files (if any) will be written to the `output` directory.
+
+**Note:**
+- The `.env` file is required for configuration; see `.env.example` for all available variables.
+- The Buildah script (`buildah.sh`) is provided for advanced/custom builds, and ensures all required files and directories are present in the image.
 
 - To stop the service: `docker compose down`
-- To rebuild after changes: `docker compose up --build`
+- To apply updates after changes: `docker compose up`
 
 ---
 
