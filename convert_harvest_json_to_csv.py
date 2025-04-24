@@ -173,12 +173,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Download Harvest time entries and convert to CSV.")
     parser.add_argument('--from-date', default=None, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--to-date', default=None, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--output', default=None, help='CSV output filename (default: harvest_export.csv)')
+    parser.add_argument('--output', default=None, help='CSV output filename (default: /output/harvest_export.csv)')
     parser.add_argument('--json', default=None, help='(Optional) Save raw JSON to this file')
     args = parser.parse_args()
 
     # --- Docker/ENV-first config ---
     # Dates: ENV > CLI > fallback
+
+    # Determine output file location
+    output_arg = args.output or os.environ.get('CSV_OUTPUT_FILE')
+    if output_arg:
+        if not os.path.isabs(output_arg):
+            output_file = os.path.join(os.getcwd(), 'output', output_arg)
+        else:
+            output_file = output_arg
+    else:
+        output_file = os.path.join(os.getcwd(), 'output', 'harvest_export.csv')
+
     env_from = os.environ.get('FROM_DATE')
     env_to = os.environ.get('TO_DATE')
     from_date = None
@@ -225,7 +236,13 @@ def main() -> None:
         logging.info(f"No date range provided, using last week: {from_date} to {to_date}")
 
     # Output file: ENV > CLI > default
-    output_file = os.environ.get('CSV_OUTPUT_FILE') or args.output or 'harvest_export.csv'
+    output_arg = os.environ.get('CSV_OUTPUT_FILE') or args.output or 'harvest_export.csv'
+    if os.path.isabs(output_arg):
+        output_file = output_arg
+    else:
+        output_file = os.path.join('output', output_arg)
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     json_file = os.environ.get('HARVEST_RAW_JSON') or args.json
 
     # Get Harvest API credentials (ENV-first)

@@ -5,35 +5,59 @@ This project provides a script to convert Harvest time-tracking data to CSV, wit
 ---
 
 ## Table of Contents
-- [Features](#features)
-- [Requirements](#requirements)
-- [Setup](#setup)
-  - [Environment Variables](#environment-variables)
-  - [Nix-shell Setup (Optional)](#nix-shell-setup-optional)
-- [Building the Image with Buildah](#building-the-image-with-buildah)
-- [Running the Container](#running-the-container)
-- [Google Sheets Integration](#google-sheets-integration)
-- [Security Notes](#security-notes)
+- [General Use](#general-use)
+  - [How to Obtain API Credentials](#how-to-obtain-api-credentials)
+  - [Google Service Account Credentials (for Sheets Upload)](#google-service-account-credentials-for-sheets-upload)
+- [Development](#development)
 
 ---
 
-## Features
-- Converts Harvest JSON data to CSV
-- Optionally uploads to Google Sheets
-- Uses Buildah for rootless, Dockerless builds
-- NixOS-compatible development shell
+## General Use
+
+Below is an example of the workflow:
+
+![Harvest Sheet Workflow](docs/harvest-sheet-workflow.png)
+
+- Converts time-tracking data to CSV
+- Optionally uploads results to Google Sheets
+- Secure and reproducible environment
+
+> **Tip:** For most users, simply configure your `.env` file and run the container as shown below.
 
 ---
 
-## Requirements
-- [Buildah](https://buildah.io/) and [Podman](https://podman.io/) **must be installed on your system** (not just in a nix-shell)
-    - On NixOS: `nix-env -iA nixos.buildah nixos.podman`
-    - On Ubuntu: `sudo apt install buildah podman`
-    - On Fedora: `sudo dnf install buildah podman`
-    - Or use your distro's package manager
-- [Nix](https://nixos.org/download.html) (optional, for reproducible Python/dev environment)
-- Harvest API credentials
-- (Optional) Google Service Account credentials for Sheets upload
+### Using Docker Compose
+
+You can also run the project using Docker Compose for easier management:
+
+1. Make sure you have a `.env` file with your configuration in the project root.
+2. Create a `docker-compose.yml` file in your project directory with the following content:
+
+```yaml
+version: '3.8'
+services:
+  harvest-sheet:
+    image: harvest-sheet:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./output:/app/output # Adjust if your script writes output files
+    restart: unless-stopped
+```
+
+**Example usage:**
+
+```sh
+docker compose up --build
+```
+
+This will build the image (if needed) and start the service. Output files (if any) will be written to the `output` directory.
+
+- To stop the service: `docker compose down`
+- To rebuild after changes: `docker compose up --build`
 
 ---
 
@@ -86,111 +110,27 @@ To upload to Google Sheets, you **must** use a Google Cloud Service Account (not
     - Click the **Share** button.
     - Add the service account email as an editor (full access is usually required for writing).
     - Click **Send**.
-12. Open the downloaded JSON key file and copy the following fields to your `.env`:
+12. Open the downloaded JSON key file and copy the following fields to your `.env` file:
     - `project_id` → `GOOGLE_SA_PROJECT_ID`
     - `private_key_id` → `GOOGLE_SA_PRIVATE_KEY_ID`
-    - `private_key` → `GOOGLE_SA_PRIVATE_KEY` (**replace all newlines with `\n`** so it is a single line)
+    - `private_key` → `GOOGLE_SA_PRIVATE_KEY` (**replace all newlines with `\n` so it is a single line**)
     - `client_email` → `GOOGLE_SA_CLIENT_EMAIL`
     - `client_id` → `GOOGLE_SA_CLIENT_ID`
-13. Add these to your `.env`:
-   ```env
-   GOOGLE_SA_PROJECT_ID=...
-   GOOGLE_SA_PRIVATE_KEY_ID=...
-   GOOGLE_SA_PRIVATE_KEY=...
-   GOOGLE_SA_CLIENT_EMAIL=...
-   GOOGLE_SA_CLIENT_ID=...
-   GOOGLE_SHEET_ID=your_sheet_id
-   GOOGLE_SHEET_TAB_NAME=your_tab_name
-   UPLOAD_TO_GOOGLE_SHEET=1
-   ```
+    - Add your `GOOGLE_SHEET_ID` and `GOOGLE_SHEET_TAB_NAME` as well.
+    - Set `UPLOAD_TO_GOOGLE_SHEET=1` to enable uploads.
+
+    Example `.env` entries:
+    ```env
+    GOOGLE_SA_PROJECT_ID=your_project_id
+    GOOGLE_SA_PRIVATE_KEY_ID=your_private_key_id
+    GOOGLE_SA_PRIVATE_KEY=your_private_key
+    GOOGLE_SA_CLIENT_EMAIL=your_service_account_email
+    GOOGLE_SA_CLIENT_ID=your_client_id
+    GOOGLE_SHEET_ID=your_sheet_id
+    GOOGLE_SHEET_TAB_NAME=your_tab_name
+    UPLOAD_TO_GOOGLE_SHEET=1
+    ```
 
 **Official Docs:**
 - [Google Cloud: Creating and Managing Service Accounts](https://cloud.google.com/iam/docs/creating-managing-service-accounts)
 - [Google Sheets API Python Quickstart](https://developers.google.com/sheets/api/quickstart/python)
-
----
-
-## Setup
-
-### 1. Clone the repository
-```sh
-git clone https://github.com/wdiaz/harvest-sheet.git
-cd harvest-sheet
-```
-
-### 2. (Optional) Enter the Nix Shell for Python/Dev Dependencies
-This ensures all Python and development dependencies are available (but does NOT provide buildah/podman):
-```sh
-nix-shell
-```
-
-### 3. Configure Environment Variables
-- Copy `.env.example` to `.env` and fill in your credentials:
-
-```sh
-cp .env.example .env
-# Edit .env with your favorite editor
-```
-
-- **Required variables:**
-  - `HARVEST_ACCOUNT_ID`, `HARVEST_AUTH_TOKEN`, `HARVEST_USER_AGENT`
-  - (Optional) `FROM_DATE`, `TO_DATE`, `CSV_OUTPUT_FILE`
-  - For Google Sheets: `GOOGLE_SA_PROJECT_ID`, `GOOGLE_SA_PRIVATE_KEY_ID`, `GOOGLE_SA_PRIVATE_KEY`, `GOOGLE_SA_CLIENT_EMAIL`, `GOOGLE_SA_CLIENT_ID`, `GOOGLE_SHEET_ID`, `GOOGLE_SHEET_TAB_NAME`, `UPLOAD_TO_GOOGLE_SHEET`
-
----
-
-## Building the Image with Buildah
-
-1. Ensure `buildah` and `podman` are installed and available on your system (see Requirements).
-2. (Optional) Activate the Nix shell if you want Python/dev dependencies available:
-   ```sh
-   nix-shell
-   ```
-3. Run the build script:
-   ```sh
-   ./buildah.sh
-   ```
-   This will:
-   - Build a container image from `python:3.11-slim`
-   - Install dependencies
-   - Copy your code and `.env.example` (not `.env`)
-   - Inject all variables from your `.env` file as environment variables in the image
-   - Commit the image as `harvest-sheet:latest`
-
----
-
-## Running the Container
-
-You can run the image with Podman (or Docker, if you export the image):
-
-```sh
-podman run --rm harvest-sheet:latest
-```
-
-- If you did **not** bake secrets into the image, use:
-  ```sh
-  podman run --rm --env-file .env harvest-sheet:latest
-  ```
-
----
-
-## Google Sheets Integration
-To enable Google Sheets upload, fill in the required Google Service Account variables in `.env` and set `UPLOAD_TO_GOOGLE_SHEET=1`.
-
----
-
-## Security Notes
-- **Never commit your real `.env` file to version control.**
-- By default, the build script injects all `.env` variables into the image. For production or shared images, avoid this and use `--env-file` at runtime instead.
-- `.env.example` is provided as a template only.
-
----
-
-## Troubleshooting
-- If you see errors about missing `buildah` or `podman`, ensure you are running inside the Nix shell (`nix-shell`).
-- For more info, see the comments in `buildah.sh` and `shell.nix`.
-
----
-
-## License
-MIT or your project license here.
