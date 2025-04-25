@@ -81,23 +81,37 @@ jobs:
           # Tag as latest
           buildah tag harvest-sheet:latest ghcr.io/${{ github.repository_owner }}/harvest-sheet:latest
 
-      # Scan image for vulnerabilities
+      # Scan image for vulnerabilities before pushing
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
+        id: trivy-scan
+        continue-on-error: true
         with:
-          image-ref: 'ghcr.io/${{ github.repository_owner }}/harvest-sheet:${{ steps.version.outputs.VERSION }}'
+          image-ref: 'harvest-sheet:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
 
+      - name: Check if Trivy results exist
+        id: check-trivy-results
+        run: |
+          if [ -f "trivy-results.sarif" ]; then
+            echo "TRIVY_RESULTS_EXIST=true" >> $GITHUB_OUTPUT
+          else
+            echo "TRIVY_RESULTS_EXIST=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v2
-        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        if: steps.trivy-scan.outcome == 'success' && steps.check-trivy-results.outputs.TRIVY_RESULTS_EXIST == 'true'
         with:
           sarif_file: 'trivy-results.sarif'
 
       - name: Apply OCI Image Spec labels
         run: |
+          # Create a new container from the image
+          newctr=$(buildah from harvest-sheet:latest)
+          # Apply labels
           buildah config --label org.opencontainers.image.created="${{ steps.version.outputs.BUILD_DATE }}" \
                          --label org.opencontainers.image.version="${{ steps.version.outputs.VERSION }}" \
                          --label org.opencontainers.image.revision="${{ github.sha }}" \
@@ -105,8 +119,9 @@ jobs:
                          --label org.opencontainers.image.source="${{ github.server_url }}/${{ github.repository }}" \
                          --label org.opencontainers.image.url="ghcr.io/${{ github.repository_owner }}/harvest-sheet" \
                          --label org.opencontainers.image.vendor="${{ github.repository_owner }}" \
-            harvest-sheet:latest
-          buildah commit harvest-sheet:latest
+            $newctr
+          # Commit the container to update the image
+          buildah commit $newctr harvest-sheet:latest
 
       - name: Push images to GHCR
         run: |
