@@ -14,27 +14,16 @@ on:
         required: false
         type: string
 
-# Prevent concurrent builds of the same branch
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      security-events: write # For scanning results
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: 'arm64,amd64'
 
       # Generate version tag
       - name: Generate version information
@@ -45,20 +34,12 @@ jobs:
           else
             echo "VERSION=$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           fi
-          echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
-      # Install Buildah and Podman with caching
+      # Install Buildah and Podman
       - name: Install Buildah and Podman
         run: |
           sudo apt-get update
           sudo apt-get install -y buildah podman
-
-      # Note about Python dependencies
-      - name: Python dependencies note
-        run: |
-          echo "Python dependencies will be installed inside the container image during build."
-          echo "The buildah.sh script handles this with 'pip install --no-cache-dir'"
-        shell: bash
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -72,42 +53,26 @@ jobs:
           chmod +x ./buildah.sh
           ./buildah.sh
 
-      - name: Tag images for GHCR
+      - name: Tag and add labels
         run: |
-          # Tag with version
-          buildah tag harvest-sheet:latest ghcr.io/${{ github.repository_owner }}/harvest-sheet:${{ steps.version.outputs.VERSION }}
-          # Tag as latest
-          buildah tag harvest-sheet:latest ghcr.io/${{ github.repository_owner }}/harvest-sheet:latest
-
-      # Run container security scan if requested
-      - name: Security scan (informational)
-        run: |
-          echo "Security scanning has been configured as an optional step."
-          echo "The workflow will proceed with building and pushing the image without vulnerability scanning."
-          echo "Consider setting up a separate security scanning workflow or post-deployment scan."
-        continue-on-error: true
-
-      - name: Apply OCI Image Spec labels
-        run: |
-          # Create a new container from the image
-          newctr=$(buildah from harvest-sheet:latest)
-          # Apply labels
-          buildah config --label org.opencontainers.image.created="${{ steps.version.outputs.BUILD_DATE }}" \
+          # Add metadata labels
+          ctr=$(buildah from harvest-sheet:latest)
+          buildah config --label org.opencontainers.image.created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
                          --label org.opencontainers.image.version="${{ steps.version.outputs.VERSION }}" \
                          --label org.opencontainers.image.revision="${{ github.sha }}" \
-                         --label org.opencontainers.image.licenses="MIT" \
                          --label org.opencontainers.image.source="${{ github.server_url }}/${{ github.repository }}" \
-                         --label org.opencontainers.image.url="ghcr.io/${{ github.repository_owner }}/harvest-sheet" \
-                         --label org.opencontainers.image.vendor="${{ github.repository_owner }}" \
-            $newctr
-          # Commit the container to update the image
-          buildah commit $newctr harvest-sheet:latest
+                         $ctr
+          buildah commit $ctr harvest-sheet:latest
+          
+          # Tag with version and latest
+          buildah tag harvest-sheet:latest ghcr.io/${{ github.repository_owner }}/harvest-sheet:${{ steps.version.outputs.VERSION }}
+          buildah tag harvest-sheet:latest ghcr.io/${{ github.repository_owner }}/harvest-sheet:latest
 
       - name: Push images to GHCR
         run: |
           buildah push ghcr.io/${{ github.repository_owner }}/harvest-sheet:${{ steps.version.outputs.VERSION }}
           buildah push ghcr.io/${{ github.repository_owner }}/harvest-sheet:latest
 
-      - name: Update README with latest build info
+      - name: Update build summary
         run: |
-          echo "🔄 Latest image built and pushed: ghcr.io/${{ github.repository_owner }}/harvest-sheet:${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Image built and pushed: ghcr.io/${{ github.repository_owner }}/harvest-sheet:${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
