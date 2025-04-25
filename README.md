@@ -68,12 +68,24 @@ This will start the service. Output files (if any) will be written to the `outpu
 
 ### Running on a Schedule (Cron)
 
-The image includes cron support for scheduled automation. By default, the container uses `/app/crontab.txt`:
+The image includes cron support for scheduled automation. By default, the container uses `/app/crontab.txt` with the following schedule:
 
 ```
+# Set essential PATH for cron jobs
+PATH=/usr/local/bin:/usr/bin:/bin
+
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * cd /app && python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1
+0 6,18 * * * cd /app && /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+
+# Run the Harvest script at 12:00 AM every Monday
+0 0 * * 1 cd /app && /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
 ```
+
+This configuration runs the script:
+- At 6:00 AM and 6:00 PM every day
+- At 12:00 AM every Monday (weekly run)
+
+All jobs log their output to `/app/cron.log` and any errors to `/app/cron.error.log`.
 
 #### To customize the schedule:
 1. Edit `crontab.txt` before building or mounting it into the container:
@@ -102,9 +114,10 @@ The image includes cron support for scheduled automation. By default, the contai
 
 ### Troubleshooting
 
-- **No output?** Check the logs: `docker logs <container>` or inspect `/app/cron.log`.
+- **No output?** Check the logs: `docker logs <container>` or inspect `/app/cron.log`. For error details, check `/app/cron.error.log`.
 - **Google Sheets upload fails?** Double-check your service account credentials and sharing permissions.
 - **Environment not loading?** Make sure `.env` is present and correctly formatted.
+- **Cron jobs not running?** Verify the container's timezone with `TZ` environment variable if your jobs appear to run at unexpected times.
 
 ---
 
