@@ -81,13 +81,22 @@ jobs:
           # Tag as latest
           buildah tag harvest-sheet:latest ghcr.io/${{ github.repository_owner }}/harvest-sheet:latest
 
+      # Export Buildah image to Docker for scanning
+      - name: Export Buildah image to Docker
+        run: |
+          # Export the Buildah image to Docker format
+          buildah push harvest-sheet:latest docker-daemon:harvest-sheet:latest
+          # Verify the image exists in Docker
+          docker image ls | grep harvest-sheet
+        continue-on-error: false
+
       # Scan image for vulnerabilities before pushing
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         id: trivy-scan
         continue-on-error: true
         with:
-          image-ref: 'harvest-sheet:latest'
+          image-ref: 'docker:harvest-sheet:latest'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
