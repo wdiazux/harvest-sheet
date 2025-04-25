@@ -15,7 +15,7 @@ This project provides a script to convert Harvest time-tracking data to CSV, wit
 
 Below is an example of the workflow:
 
-![Harvest Sheet Workflow](docs/harvest-sheet-workflow.png)
+### Harvest Sheet Workflow
 
 - Converts time-tracking data to CSV
 - Optionally uploads results to Google Sheets
