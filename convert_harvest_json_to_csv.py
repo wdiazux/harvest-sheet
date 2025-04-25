@@ -312,7 +312,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     # Usage: python convert_harvest_json_to_csv.py [--from-date YYYY-MM-DD] [--to-date YYYY-MM-DD] [--output FILE] [--json FILE]
-    # Or via Docker: set ENV vars (see .env.example)
-    # Requires: requests, python-dotenv (optional, for .env support)
     main()
 
