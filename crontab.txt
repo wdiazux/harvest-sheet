@@ -1,10 +1,5 @@
 # Set essential PATH for cron jobs
 PATH=/usr/local/bin:/usr/bin:/bin
-# Set timezone to ensure consistent scheduling
-CRON_TZ=UTC
 
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
 0 6,18 * * * cd /app && /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
-
-# Keep the container running by checking cron status every day
-0 0 * * * ps -ef | grep -q "[c]ron" || (echo "[ERROR] Cron service not running, attempting restart" >> /app/cron.error.log && service cron restart)
