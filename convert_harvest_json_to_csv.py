@@ -34,39 +34,52 @@ def get_env_variable(var_name: str, default: Optional[str] = None, required: boo
 
 def download_time_entries(account_id: str, auth_token: str, user_agent: str, from_date: str, to_date: str) -> Dict[str, Any]:
     """Fetch all Harvest time entries for the given date range, handling pagination."""
-    url = f"https://api.harvestapp.com/v2/time_entries?from={from_date}&to={to_date}&per_page=100"
+    base_url = f"https://api.harvestapp.com/v2/time_entries"
+    params = {
+        "from": from_date,
+        "to": to_date,
+        "per_page": 100
+    }
     headers = {
         'Harvest-Account-ID': account_id,
         'Authorization': f'Bearer {auth_token}',
         'User-Agent': user_agent,
     }
     all_entries = []
-    page = 1
-    while True:
-        paged_url = f"{url}&page={page}"
-        try:
-            response = requests.get(paged_url, headers=headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-        except requests.RequestException as e:
-            logging.error(f"Harvest API request failed on page {page}: {e}")
-            raise
-        except Exception as e:
-            logging.error(f"Unexpected error on page {page}: {e}")
-            raise
-        entries = data.get("time_entries", [])
-        all_entries.extend(entries)
-        if not data.get("next_page"):
-            break
-        page = data["next_page"]
+    
+    # Use a session for connection pooling efficiency
+    with requests.Session() as session:
+        session.headers.update(headers)
+        
+        page = 1
+        while True:
+            params["page"] = page
+            try:
+                response = session.get(base_url, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+            except requests.RequestException as e:
+                logging.error(f"Harvest API request failed on page {page}: {e}")
+                raise
+            except Exception as e:
+                logging.error(f"Unexpected error on page {page}: {e}")
+                raise
+                
+            entries = data.get("time_entries", [])
+            all_entries.extend(entries)
+            
+            if not data.get("next_page"):
+                break
+            page = data["next_page"]
+            
     return {"time_entries": all_entries}
 
 
 def parse_time_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Convert Harvest API time entries into rows for CSV export with correct field mapping."""
-    rows = []
-    for entry in data.get("time_entries", []):
-        rows.append({
+    # Use list comprehension for better performance
+    return [
+        {
             "Date": entry.get("spent_date", ""),
             "Client": entry.get("client", {}).get("name", ""),
             "Project": entry.get("project", {}).get("name", ""),
@@ -76,8 +89,9 @@ def parse_time_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             "Hours": entry.get("hours", 0),
             "Billable?": "Yes" if entry.get("billable") else "No",
             "Invoiced?": "Yes" if entry.get("is_billed") else "No",
-        })
-    return rows
+        }
+        for entry in data.get("time_entries", [])
+    ]
 
 
 def write_csv(rows: List[Dict[str, Any]], output_file: str) -> None:
@@ -100,9 +114,12 @@ def write_csv(rows: List[Dict[str, Any]], output_file: str) -> None:
 def get_last_week_range() -> Tuple[str, str]:
     """Return the previous week's Monday and Sunday date strings (YYYY-MM-DD)."""
     today = datetime.now()
-    # Always get the previous full week (Monday to Sunday)
-    last_monday = today - timedelta(days=today.weekday() + 7)
+    # Calculate days since last Monday (add 7 to go to previous week)
+    days_since_monday = today.weekday() + 7
+    # Get last week's Monday and Sunday
+    last_monday = today - timedelta(days=days_since_monday)
     last_sunday = last_monday + timedelta(days=6)
+    # Format as YYYY-MM-DD
     return last_monday.strftime('%Y-%m-%d'), last_sunday.strftime('%Y-%m-%d')
 
 def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: str):
@@ -176,85 +193,63 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
 
 def main() -> None:
     """Main entry point for the script: parses arguments, fetches data, writes CSV, and optionally uploads to Google Sheets."""
-    parser = argparse.ArgumentParser(description="Download Harvest time entries and convert to CSV.")
+    parser = argparse.ArgumentParser(description="Convert Harvest time entries to CSV format")
     parser.add_argument('--from-date', default=None, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--to-date', default=None, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--output', default=None, help='CSV output filename (default: /output/harvest_export.csv)')
+    parser.add_argument('--output', default=None, help='Output CSV file name')
     parser.add_argument('--json', default=None, help='(Optional) Save raw JSON to this file')
     args = parser.parse_args()
 
-    # Determine output file location
-    output_arg = args.output or os.environ.get('CSV_OUTPUT_FILE')
-    if output_arg:
-        if not os.path.isabs(output_arg):
-            output_file = os.path.join(os.getcwd(), 'output', output_arg)
-        else:
-            output_file = output_arg
-    else:
-        output_file = os.path.join(os.getcwd(), 'output', 'harvest_export.csv')
-
+    # Determine date range
+    # Priority: CLI arguments > environment variables > last week
     env_from = os.environ.get('FROM_DATE')
     env_to = os.environ.get('TO_DATE')
-    from_date = None
-    to_date = None
-    if env_from and env_to:
-        from_date = env_from
-        to_date = env_to
-        logging.info(f"Using FROM_DATE and TO_DATE from environment: {from_date} to {to_date}")
-    elif env_from:
-        from_date = env_from
-        from_date_dt = datetime.strptime(from_date, '%Y-%m-%d')
-        to_date_dt = from_date_dt + timedelta(days=(6 - from_date_dt.weekday()))
-        to_date = to_date_dt.strftime('%Y-%m-%d')
-        logging.info(f"Only FROM_DATE from environment, using range: {from_date} to {to_date}")
-    elif env_to:
-        to_date = env_to
-        to_date_dt = datetime.strptime(to_date, '%Y-%m-%d')
-        from_date_dt = to_date_dt - timedelta(days=to_date_dt.weekday())
-        from_date = from_date_dt.strftime('%Y-%m-%d')
-        logging.info(f"Only TO_DATE from environment, using range: {from_date} to {to_date}")
-    elif args.from_date and args.to_date:
+    
+    if args.from_date and args.to_date:
         from_date = args.from_date
         to_date = args.to_date
         logging.info(f"Using --from-date and --to-date arguments: {from_date} to {to_date}")
     elif args.from_date:
-        from_date = args.from_date
-        from_date_dt = datetime.strptime(from_date, '%Y-%m-%d')
-        to_date_dt = from_date_dt + timedelta(days=(6 - from_date_dt.weekday()))
-        to_date = to_date_dt.strftime('%Y-%m-%d')
+        from_dt = datetime.strptime(args.from_date, '%Y-%m-%d')
+        from_date, to_date = get_week_range(from_dt=from_dt)
         logging.info(f"Only --from-date provided, using range: {from_date} to {to_date}")
     elif args.to_date:
-        to_date = args.to_date
-        to_date_dt = datetime.strptime(to_date, '%Y-%m-%d')
-        from_date_dt = to_date_dt - timedelta(days=to_date_dt.weekday())
-        from_date = from_date_dt.strftime('%Y-%m-%d')
+        to_dt = datetime.strptime(args.to_date, '%Y-%m-%d')
+        from_date, to_date = get_week_range(to_dt=to_dt)
         logging.info(f"Only --to-date provided, using range: {from_date} to {to_date}")
+    elif env_from and env_to:
+        from_date = env_from
+        to_date = env_to
+        logging.info(f"Using FROM_DATE and TO_DATE from environment: {from_date} to {to_date}")
+    elif env_from:
+        from_date_dt = datetime.strptime(env_from, '%Y-%m-%d')
+        from_date, to_date = get_week_range(from_dt=from_date_dt)
+        logging.info(f"Only FROM_DATE from environment, using range: {from_date} to {to_date}")
+    elif env_to:
+        to_date_dt = datetime.strptime(env_to, '%Y-%m-%d')
+        from_date, to_date = get_week_range(to_dt=to_date_dt)
+        logging.info(f"Only TO_DATE from environment, using range: {from_date} to {to_date}")
     else:
-        # Use last full week (Mon-Sun) before today
-        today = datetime.now()
-        last_monday = today - timedelta(days=today.weekday() + 7)
-        last_sunday = last_monday + timedelta(days=6)
-        from_date = last_monday.strftime('%Y-%m-%d')
-        to_date = last_sunday.strftime('%Y-%m-%d')
+        from_date, to_date = get_last_week_range()
         logging.info(f"No date range provided, using last week: {from_date} to {to_date}")
 
-    # Output file: ENV > CLI > default
-    output_arg = os.environ.get('CSV_OUTPUT_FILE') or args.output or 'harvest_export.csv'
-    if os.path.isabs(output_arg):
-        output_file = output_arg
-    else:
-        output_file = os.path.join('output', output_arg)
-    # Get output directory from environment or use default
+    # Determine output paths
     output_dir = os.environ.get('OUTPUT_DIR', 'output')
+    output_name = os.environ.get('CSV_OUTPUT_FILE') or args.output or 'harvest_export.csv'
     
-    # If output file is not absolute, join with output directory
-    if not os.path.isabs(output_file):
-        output_file = os.path.join(output_dir, os.path.basename(output_file))
+    # Handle output file path
+    if os.path.isabs(output_name):
+        output_file = output_name
+    else:
+        output_file = os.path.join(output_dir, os.path.basename(output_name))
         
     # Ensure output directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     logging.info(f"Using output file: {output_file}")
+    
+    # JSON export settings
     json_file = os.environ.get('HARVEST_RAW_JSON') or args.json
+    enable_raw_json = os.environ.get('ENABLE_RAW_JSON') == '1'
 
     # Get Harvest API credentials (ENV-first)
     try:
@@ -273,8 +268,9 @@ def main() -> None:
         return
 
     # Optionally save raw JSON
-    if json_file:
+    if json_file and (enable_raw_json or args.json):
         try:
+            os.makedirs(os.path.dirname(json_file), exist_ok=True)
             with open(json_file, "w") as jf:
                 json.dump(data, jf, indent=2)
             logging.info(f"Raw JSON saved to: {json_file}")
