@@ -72,7 +72,7 @@ The image includes cron support for scheduled automation. By default, the contai
 
 ```
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1
+0 6,18 * * * cd /app && python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1
 ```
 
 #### To customize the schedule:
@@ -89,6 +89,11 @@ The image includes cron support for scheduled automation. By default, the contai
 
 - See `.env.example` for all supported variables.
 - You can override variables at runtime with `-e VAR=value` or in your Compose file.
+- Docker-specific variables are available for customizing container behavior:
+  - `TZ`: Set the timezone for the container (default: UTC)
+  - `OUTPUT_DIR`: Directory for output files (default: /app/output)
+  - `ENABLE_RAW_JSON`: Enable/disable raw JSON export (1=enable, 0=disable)
+  - `HARVEST_RAW_JSON`: Location to store raw JSON if enabled
 
 ### Advanced: Buildah & NixOS
 

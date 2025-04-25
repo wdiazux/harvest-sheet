@@ -110,63 +110,69 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
 
     Supports credentials from split environment variables.
     """
-    if not (service_account and build):
-        raise ImportError("Google Sheets dependencies are not installed. Please install google-api-python-client and google-auth.")
+    if not service_account or not build:
+        raise ImportError("Google API dependencies not installed. Run: pip install google-api-python-client google-auth")
+    
     try:
-        creds = None
-        # Only support split env variables for credentials
-        split_vars = [
-            'GOOGLE_SA_PROJECT_ID',
-            'GOOGLE_SA_PRIVATE_KEY_ID',
-            'GOOGLE_SA_PRIVATE_KEY',
-            'GOOGLE_SA_CLIENT_EMAIL',
-            'GOOGLE_SA_CLIENT_ID',
-        ]
-        if all(os.environ.get(var) for var in split_vars):
-            # Compose the credentials dict
-            creds_dict = {
-                "type": "service_account",
-                "project_id": os.environ['GOOGLE_SA_PROJECT_ID'],
-                "private_key_id": os.environ['GOOGLE_SA_PRIVATE_KEY_ID'],
-                "private_key": os.environ['GOOGLE_SA_PRIVATE_KEY'].replace('\\n', '\n'),
-                "client_email": os.environ['GOOGLE_SA_CLIENT_EMAIL'],
-                "client_id": os.environ['GOOGLE_SA_CLIENT_ID'],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{os.environ['GOOGLE_SA_CLIENT_EMAIL'].replace('@', '%40')}",
-                # Optional universe_domain
-            }
-            if os.environ.get('GOOGLE_SA_UNIVERSE_DOMAIN'):
-                creds_dict["universe_domain"] = os.environ['GOOGLE_SA_UNIVERSE_DOMAIN']
-            creds = service_account.Credentials.from_service_account_info(
-                creds_dict,
-                scopes=["https://www.googleapis.com/auth/spreadsheets"]
-            )
-        else:
-            raise RuntimeError("No Google service account credentials provided via split environment variables.")
-        service = build('sheets', 'v4', credentials=creds)
-        sheet = service.spreadsheets()
-        # Read CSV data
-        with open(csv_file, newline='') as f:
-            reader = csv.reader(f)
-            data = list(reader)
-        # Clear the existing sheet content
-        sheet.values().clear(
-            spreadsheetId=spreadsheet_id,
-            range=sheet_name
-        ).execute()
-        # Write new data
-        sheet.values().update(
+        # Try to load Google credentials from Environment Variables
+        credentials_dict = {
+            "type": "service_account",
+            "project_id": get_env_variable('GOOGLE_SA_PROJECT_ID', required=True),
+            "private_key_id": get_env_variable('GOOGLE_SA_PRIVATE_KEY_ID', required=True),
+            "private_key": get_env_variable('GOOGLE_SA_PRIVATE_KEY', required=True).replace('\\n', '\n'),
+            "client_email": get_env_variable('GOOGLE_SA_CLIENT_EMAIL', required=True),
+            "client_id": get_env_variable('GOOGLE_SA_CLIENT_ID', required=True),
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{get_env_variable('GOOGLE_SA_CLIENT_EMAIL', required=True)}",
+            "universe_domain": get_env_variable('GOOGLE_SA_UNIVERSE_DOMAIN', default="googleapis.com")
+        }
+        
+        # Generate credentials from the dictionary
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_dict, 
+            scopes=['https://www.googleapis.com/auth/spreadsheets']
+        )
+        
+        # Build the Sheets service
+        service = build('sheets', 'v4', credentials=credentials)
+    except Exception as e:
+        logging.error(f"Failed to initialize Google Sheets API: {e}")
+        raise
+
+    try:
+        # Read the CSV data
+        with open(csv_file, 'r') as f:
+            csv_reader = csv.reader(f)
+            values = list(csv_reader)
+        
+        # Clear the sheet first
+        clear_request = service.spreadsheets().values().clear(
             spreadsheetId=spreadsheet_id,
             range=sheet_name,
-            valueInputOption="RAW",
-            body={"values": data}
-        ).execute()
-        logging.info(f"Uploaded {csv_file} to Google Sheet '{sheet_name}' in spreadsheet '{spreadsheet_id}'")
-    except Exception as e:
-        logging.error(f"Failed to upload CSV to Google Sheets: {e}")
+            body={}
+        )
+        clear_request.execute()
+        
+        # Update with new values
+        update_request = service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=sheet_name,
+            valueInputOption='USER_ENTERED',
+            body={
+                'values': values
+            }
+        )
+        update_request.execute()
+        logging.info(f"Successfully uploaded {csv_file} to Google Sheet ID: {spreadsheet_id}, Tab: {sheet_name}")
+    except FileNotFoundError:
+        logging.error(f"CSV file not found: {csv_file}")
         raise
+    except Exception as e:
+        logging.error(f"Error uploading to Google Sheets: {e}")
+        raise
+
 
 def main() -> None:
     """Main entry point for the script: parses arguments, fetches data, writes CSV, and optionally uploads to Google Sheets."""
@@ -176,9 +182,6 @@ def main() -> None:
     parser.add_argument('--output', default=None, help='CSV output filename (default: /output/harvest_export.csv)')
     parser.add_argument('--json', default=None, help='(Optional) Save raw JSON to this file')
     args = parser.parse_args()
-
-    # --- Docker/ENV-first config ---
-    # Dates: ENV > CLI > fallback
 
     # Determine output file location
     output_arg = args.output or os.environ.get('CSV_OUTPUT_FILE')
@@ -227,8 +230,8 @@ def main() -> None:
         from_date = from_date_dt.strftime('%Y-%m-%d')
         logging.info(f"Only --to-date provided, using range: {from_date} to {to_date}")
     else:
-        # Use last full week (Mon-Sun) before today (2025-04-23)
-        today = datetime(2025, 4, 23)
+        # Use last full week (Mon-Sun) before today
+        today = datetime.now()
         last_monday = today - timedelta(days=today.weekday() + 7)
         last_sunday = last_monday + timedelta(days=6)
         from_date = last_monday.strftime('%Y-%m-%d')
@@ -241,8 +244,16 @@ def main() -> None:
         output_file = output_arg
     else:
         output_file = os.path.join('output', output_arg)
+    # Get output directory from environment or use default
+    output_dir = os.environ.get('OUTPUT_DIR', 'output')
+    
+    # If output file is not absolute, join with output directory
+    if not os.path.isabs(output_file):
+        output_file = os.path.join(output_dir, os.path.basename(output_file))
+        
     # Ensure output directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    logging.info(f"Using output file: {output_file}")
     json_file = os.environ.get('HARVEST_RAW_JSON') or args.json
 
     # Get Harvest API credentials (ENV-first)
