@@ -11,9 +11,9 @@ fi
 # 2. Set working directory
 buildah config --workingdir /app $ctr
 
-# 3. Install cron and clean up apt cache
+# 3. Install cron, procps (for ps command), and clean up apt cache
 buildah run $ctr -- apt-get update
-buildah run $ctr -- apt-get install -y --no-install-recommends cron
+buildah run $ctr -- apt-get install -y --no-install-recommends cron procps
 buildah run $ctr -- rm -rf /var/lib/apt/lists/*
 
 # 4. Copy code, requirements, and crontab
