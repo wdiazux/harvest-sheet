@@ -1,8 +1,12 @@
-# Set essential PATH for cron jobs
+# Set essential PATH and SHELL for cron jobs
 PATH=/usr/local/bin:/usr/bin:/bin
+SHELL=/bin/bash
+
+# Define common logging pattern
+LOG_CMD=">> /app/cron.log 2>&1 || echo \"[ERROR] Harvest script failed at $(date)\" >> /app/cron.error.log"
 
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * cd /app && /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+0 6,18 * * * /app/cron_wrapper.sh $LOG_CMD
 
 # Run the Harvest script at 12:00 AM every Monday
-0 0 * * 1 cd /app && /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+0 0 * * 1 /app/cron_wrapper.sh $LOG_CMD

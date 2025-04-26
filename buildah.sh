@@ -25,7 +25,7 @@ buildah run $ctr -- sh -c 'apt-get update && \
 
 # 4. Copy application files
 echo "Copying application files..."
-for file in convert_harvest_json_to_csv.py requirements.txt crontab.txt; do
+for file in convert_harvest_json_to_csv.py requirements.txt crontab.txt cron_wrapper.sh; do
   if [ ! -f "$file" ]; then
     echo "Error: Required file $file not found" >&2
     exit 1
@@ -44,8 +44,9 @@ buildah run $ctr -- touch /app/cron.log /app/cron.error.log
 echo "Installing Python dependencies..."
 buildah run $ctr -- pip install --no-cache-dir -r /app/requirements.txt python-dotenv
 
-# 7. Register crontab
+# 7. Make wrapper script executable and register crontab
 echo "Setting up cron jobs..."
+buildah run $ctr -- chmod +x /app/cron_wrapper.sh
 buildah run $ctr -- crontab /app/crontab.txt
 
 # 8. Set environment variables
