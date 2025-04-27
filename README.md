@@ -71,21 +71,22 @@ This will start the service. Output files (if any) will be written to the `outpu
 The image includes cron support for scheduled automation. By default, the container uses `/app/crontab.txt` with the following schedule:
 
 ```
-# Set essential PATH for cron jobs
+# Set essential PATH and SHELL for cron jobs
 PATH=/usr/local/bin:/usr/bin:/bin
+SHELL=/bin/bash
 
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * cd /app && /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+0 6,18 * * * /app/cron_wrapper.sh >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
 
 # Run the Harvest script at 12:00 AM every Monday
-0 0 * * 1 cd /app && /usr/local/bin/python /app/convert_harvest_json_to_csv.py >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+0 0 * * 1 /app/cron_wrapper.sh >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
 ```
 
 This configuration runs the script:
 - At 6:00 AM and 6:00 PM every day
 - At 12:00 AM every Monday (weekly run)
 
-All jobs log their output to `/app/cron.log` and any errors to `/app/cron.error.log`.
+All jobs use the `/app/cron_wrapper.sh` script which sets up the environment properly before executing the Python script. The jobs log their output to `/app/cron.log` and any errors to `/app/cron.error.log`.
 
 #### To customize the schedule:
 1. Edit `crontab.txt` before building or mounting it into the container:
@@ -106,6 +107,9 @@ All jobs log their output to `/app/cron.log` and any errors to `/app/cron.error.
   - `OUTPUT_DIR`: Directory for output files (default: /app/output)
   - `ENABLE_RAW_JSON`: Enable/disable raw JSON export (1=enable, 0=disable)
   - `HARVEST_RAW_JSON`: Location to store raw JSON if enabled
+  - `FROM_DATE`: Optional start date in YYYY-MM-DD format (if not using command-line args)
+  - `TO_DATE`: Optional end date in YYYY-MM-DD format (if not using command-line args)
+  - `CSV_OUTPUT_FILE`: Optional custom filename for the CSV output
 
 ### Advanced: Buildah & NixOS
 
