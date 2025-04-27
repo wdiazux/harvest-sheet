@@ -1,12 +1,21 @@
 # Harvest Sheet
 
-This project provides a script to convert Harvest time-tracking data to CSV, with optional Google Sheets upload. The environment is designed to be reproducible and secure, leveraging Buildah for container builds and NixOS for development.
+This project provides a script to convert Harvest time-tracking data to CSV, with optional Google Sheets upload. The project uses Buildah for container builds and NixOS for development.
 
 ---
 
 ## Table of Contents
 - [General Use](#general-use)
-  - [How to Obtain API Credentials](#how-to-obtain-api-credentials)
+  - [Harvest Sheet Workflow](#harvest-sheet-workflow)
+- [Usage Guide: Harvest Sheet Docker Image](#usage-guide-harvest-sheet-docker-image)
+  - [Quick Start: One-off Run](#quick-start-one-off-run)
+  - [Automated Runs with Docker Compose](#automated-runs-with-docker-compose)
+  - [Running on a Schedule (Cron)](#running-on-a-schedule-cron)
+  - [Environment Variables](#environment-variables)
+  - [Advanced: Buildah & NixOS](#advanced-buildah--nixos)
+  - [Troubleshooting](#troubleshooting)
+- [How to Obtain API Credentials](#how-to-obtain-api-credentials)
+  - [Harvest API Credentials](#harvest-api-credentials)
   - [Google Service Account Credentials (for Sheets Upload)](#google-service-account-credentials-for-sheets-upload)
 
 ---
