@@ -19,31 +19,46 @@ except ImportError:
 def load_environment():
     """Load environment variables from .env file.
     
-    Looks for .env file in the script directory or parent directories.
+    In Docker, looks for .env at /app/.env
+    Otherwise, looks for .env in script directory or parent directories.
     """
     try:
         from dotenv import load_dotenv, find_dotenv
         
-        # First try looking for a specific .env file in the current directory
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        local_env = os.path.join(script_dir, '.env')
+        # Check if we're running in a Docker container
+        in_docker = os.path.exists('/.dockerenv') or os.path.isdir('/app')
+        docker_env_path = '/app/.env'
         
-        if os.path.isfile(local_env):
-            load_dotenv(local_env)
-            logging.info(f"Loaded environment variables from {local_env}")
+        if in_docker and os.path.isfile(docker_env_path):
+            # In Docker, use /app/.env path
+            load_dotenv(docker_env_path)
+            logging.info(f"Loaded environment variables from {docker_env_path} (Docker)")
         else:
-            # Use find_dotenv to look in parent directories
-            env_path = find_dotenv()
-            if env_path:
-                load_dotenv(env_path)
-                logging.info(f"Loaded environment variables from {env_path}")
+            # Look for .env in script directory first
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            local_env = os.path.join(script_dir, '.env')
+            
+            if os.path.isfile(local_env):
+                load_dotenv(local_env)
+                logging.info(f"Loaded environment variables from {local_env}")
             else:
-                logging.warning("No .env file found, using system environment variables")
+                # Use find_dotenv as a fallback
+                env_path = find_dotenv()
+                if env_path:
+                    load_dotenv(env_path)
+                    logging.info(f"Loaded environment variables from {env_path}")
+                else:
+                    logging.warning("No .env file found, using system environment variables")
                 
-        # Automatically set USER_PREFIX if WILLIAM_DIAZ_ prefixed variables exist
-        if os.environ.get('WILLIAM_DIAZ_HARVEST_ACCOUNT_ID'):
-            os.environ['USER_PREFIX'] = 'WILLIAM_DIAZ_'
-            logging.info("Automatically set USER_PREFIX to WILLIAM_DIAZ_")
+        # Auto-detect and set USER_PREFIX if any prefixed variables exist
+        # Check for environment variables ending with _HARVEST_ACCOUNT_ID
+        for env_var in os.environ:
+            if env_var.endswith('_HARVEST_ACCOUNT_ID') and env_var != 'HARVEST_ACCOUNT_ID':
+                prefix = env_var[:-len('_HARVEST_ACCOUNT_ID')]
+                if prefix:
+                    os.environ['USER_PREFIX'] = prefix + '_'
+                    logging.info(f"Automatically set USER_PREFIX to {prefix}_")
+                    break
             
     except ImportError:
         logging.warning("python-dotenv not installed, using system environment variables")
@@ -52,13 +67,67 @@ def load_environment():
 
 # Set up logging
 def setup_logging(debug=False):
-    """Configure logging with the specified debug level."""
+    """Configure logging with the specified debug level.
+    
+    When running in Docker, logs to /app/logs directory.
+    Otherwise, logs to standard output.
+    """
     level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(level=level, format='[%(levelname)s] %(message)s')
+    
+    # Check if we're running in a Docker container
+    in_docker = os.path.exists('/.dockerenv') or os.path.isdir('/app')
+    
+    if in_docker and not debug:
+        # In Docker production mode, log to file in /app/logs directory
+        log_dir = '/app/logs'
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, f'harvest_{datetime.now().strftime("%Y%m%d")}.log')
+        
+        # Configure file handler
+        handler = logging.FileHandler(log_file)
+        handler.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s'))
+        
+        # Set up the root logger
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+        root_logger.addHandler(handler)
+        
+        # Also keep console output for Docker logs
+        console = logging.StreamHandler()
+        console.setFormatter(logging.Formatter('[%(levelname)s] %(message)s'))
+        root_logger.addHandler(console)
+    else:
+        # Standard console logging for development
+        logging.basicConfig(level=level, format='[%(levelname)s] %(message)s')
+    
     return logging.getLogger(__name__)
 
 # Initialize logging with default level
 logger = setup_logging()
+
+
+def get_absolute_path(relative_path: str) -> str:
+    """Convert a relative path to an absolute path, respecting Docker environment.
+    
+    If running in Docker, paths will be rooted at /app.
+    Otherwise, they'll be relative to the script's directory.
+    
+    Args:
+        relative_path: A path relative to the application root
+        
+    Returns:
+        An absolute path appropriate for the current environment
+    """
+    # Check if we're running in a Docker container
+    in_docker = os.path.exists('/.dockerenv') or os.path.isdir('/app')
+    
+    if in_docker:
+        # In Docker, root at /app
+        return os.path.join('/app', relative_path)
+    else:
+        # In development, use script directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(script_dir, relative_path)
 
 def get_env_variable(var_name: str, default: Optional[str] = None, required: bool = False) -> str:
     """Return an environment variable, with support for user prefixes.
@@ -221,29 +290,28 @@ def write_csv(rows: List[Dict[str, Any]], output_file: str) -> None:
         rows: List of dictionaries containing the data to write
         output_file: Path to the output CSV file. If not absolute, will be created in ./output/
     """
-    # If output_file is not an absolute path, create it in ./output/
+    # If output_file is not an absolute path, create it in the appropriate output directory
     if not os.path.isabs(output_file):
-        output_dir = 'output'  # Default to local output directory when not in Docker
-        # Check if we're running in a Docker container
-        if os.path.exists('/.env') or os.path.isfile('/app/.env'):
-            output_dir = '/app/output'
+        # Use the Docker-aware path function to determine the output directory
+        output_dir = get_absolute_path('output')
+        logging.debug(f"Using output directory: {output_dir}")
         
         # Create the output directory if it doesn't exist
         try:
             os.makedirs(output_dir, exist_ok=True)
         except OSError as e:
-            # If we can't create the directory, fall back to current directory
             logging.warning(f"Could not create directory {output_dir}, using current directory: {e}")
             output_dir = '.'
             
-        output_file = os.path.join(output_dir, os.path.basename(output_file))
+        # Update the output file path
+        output_file = os.path.join(output_dir, output_file)
     else:
         # Ensure the directory exists if it's an absolute path
         dir_path = os.path.dirname(output_file) or '.'
         try:
             os.makedirs(dir_path, exist_ok=True)
         except OSError as e:
-            logging.error(f"Could not create directory {dir_path}: {e}")
+            logging.warning(f"Could not create directory {dir_path}, output may fail: {e}")
             raise
     
     fieldnames = [
@@ -334,36 +402,29 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
         client_id = get_env_variable('GOOGLE_SA_CLIENT_ID', required=True)
         universe_domain = get_env_variable('GOOGLE_SA_UNIVERSE_DOMAIN', default="googleapis.com")
         
-        # Read GOOGLE_SA_PRIVATE_KEY directly from environment
-        # The issue was that get_env_variable wasn't working well with the private key
-        # because it contains special characters
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'), 'r') as env_file:
-            env_content = env_file.read()
-            
-        # Extract the private key using a more direct method
-        import re
-        private_key_match = re.search(r'GOOGLE_SA_PRIVATE_KEY=(["\'])(.+?)\1', env_content, re.DOTALL)
+        # Get Google private key using a more reliable method
+        # Private keys need special handling because of their format
+        private_key = os.environ.get('GOOGLE_SA_PRIVATE_KEY', '')
         
-        if private_key_match:
-            # Get the raw key (without quotes)
-            private_key = private_key_match.group(2)
-            # Replace \n with actual newlines
-            private_key = private_key.replace('\\n', '\n')
-            logging.info(f"Successfully loaded private key from .env ({len(private_key)} characters)")
-        else:
-            # Fallback - try reading directly from environment
-            logging.warning("Could not extract private key from .env file, trying environment variables")
-            private_key = os.environ.get('GOOGLE_SA_PRIVATE_KEY', '')
-            private_key = private_key.replace('\\n', '\n')
+        # Remove any surrounding quotes if present
+        if (private_key.startswith('\'') and private_key.endswith('\'')) or \
+           (private_key.startswith('"') and private_key.endswith('"')):
+            private_key = private_key[1:-1]
+        
+        # Replace escaped newlines with actual newlines
+        private_key = private_key.replace('\\n', '\n')
+        
+        # Validate private key format and length
+        if len(private_key) < 100:  # Valid keys are much longer
+            logging.error(f"Private key appears too short: {len(private_key)} characters")
+            raise ValueError("Invalid or missing private key - check GOOGLE_SA_PRIVATE_KEY in .env file")
             
-            if len(private_key) < 100:  # A valid key should be much longer
-                logging.error(f"Private key appears too short: {len(private_key)} characters")
-                raise ValueError("Invalid or missing private key")
-                
-        # Validate the key format
         if not private_key.startswith("-----BEGIN PRIVATE KEY-----"):
-            logging.error("Private key has incorrect format")
+            logging.error("Private key has incorrect format - must start with -----BEGIN PRIVATE KEY-----")
             raise ValueError("Invalid private key format")
+            
+        logging.info(f"Successfully loaded private key ({len(private_key)} characters)")
+
         
         # Create credentials dictionary for service account auth
         credentials_dict = {
@@ -442,27 +503,16 @@ def main() -> None:
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
     
-    # If --user argument is provided, override the automatically set USER_PREFIX
-    if args.user:
-        os.environ['USER_PREFIX'] = args.user
-        logging.info(f"Set USER_PREFIX to {args.user} from command line argument")
-    
     # Reconfigure logging if debug flag is set
     global logger
     logger = setup_logging(debug=args.debug)
     
-    # Set user prefix if provided via command line
+    # If --user argument is provided, override the automatically set USER_PREFIX
     if args.user:
-        os.environ['USER_PREFIX'] = args.user.upper()
-    # Otherwise, try to find a user prefix in the environment variables
-    elif 'USER_PREFIX' not in os.environ:
-        # Look for any environment variable that ends with _HARVEST_USER_AGENT
-        for key in os.environ:
-            if key.endswith('_HARVEST_USER_AGENT'):
-                prefix = key.replace('_HARVEST_USER_AGENT', '_')
-                os.environ['USER_PREFIX'] = prefix
-                logging.info(f"Auto-detected user prefix from environment: {prefix}")
-                break
+        # Ensure the prefix ends with underscore
+        user_prefix = args.user if args.user.endswith('_') else f"{args.user}_"
+        os.environ['USER_PREFIX'] = user_prefix
+        logging.info(f"Set USER_PREFIX to {user_prefix} from command line argument")
     
     # Get the current user prefix for logging
     prefix = os.environ.get('USER_PREFIX', '')
@@ -506,13 +556,19 @@ def main() -> None:
     # Determine output paths
     output_name = args.output or get_env_variable('CSV_OUTPUT_FILE', 'harvest_export.csv')
     
-    # Set default output directory based on environment
-    default_output_dir = 'output'  # Default to local output directory
-    if os.path.exists('/.env') or os.path.isfile('/app/.env'):
-        default_output_dir = '/app/output'  # Use Docker path if in container
+    # Set default output directory using the Docker-aware path helper
+    output_dir = get_absolute_path('output')
     
-    output_dir = os.environ.get('OUTPUT_DIR', default_output_dir)
+    # Allow override via environment variable
+    output_dir = os.environ.get('OUTPUT_DIR', output_dir)
+    logging.debug(f"Using output directory: {output_dir}")
     
+    # Ensure the output directory exists
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+    except OSError as e:
+        logging.warning(f"Could not create output directory {output_dir}: {e}")
+        
     # If output file doesn't have a path, put it in the output directory
     if not os.path.dirname(output_name):
         output_file = os.path.join(output_dir, output_name)
