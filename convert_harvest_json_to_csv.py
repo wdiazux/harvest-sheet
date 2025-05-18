@@ -817,7 +817,7 @@ def main() -> None:
     
     # Optionally prepare JSON output path
     json_file = None
-    enable_raw_json = get_env_variable('SAVE_RAW_JSON', '0').lower() in ('1', 'true', 'yes')
+    enable_raw_json = get_env_variable('ENABLE_RAW_JSON', '0').lower() in ('1', 'true', 'yes')
     
     if args.json or enable_raw_json:
         json_file = args.json or output_file.replace('.csv', '.json')
