@@ -35,6 +35,15 @@ The application follows this workflow:
 4. Optionally uploads the CSV to Google Sheets
 5. When running via cron, processes all users found in the environment variables
 
+### Features
+
+- **Full Harvest API Integration**: Access to all standard and advanced time entry fields
+- **Data Validation**: Uses Pydantic to ensure data integrity
+- **Flexible Output**: Option to include basic or advanced fields in exports 
+- **Rich Console Output**: Enhanced terminal feedback with progress indicators
+- **Multi-User Support**: Process time entries for multiple Harvest accounts
+- **Automated Scheduling**: Built-in cron support for regular exports
+
 - Converts time-tracking data to CSV
 - Optionally uploads results to Google Sheets
 - Supports both one-off and scheduled (cron) runs
@@ -170,6 +179,7 @@ Each user's variables are prefixed with their name (e.g., `FIRSTNAME_LASTNAME_`)
 
 - `UPLOAD_TO_GOOGLE_SHEET`: Enable/disable Google Sheets upload (1=enable, 0=disable)
 - `ENABLE_RAW_JSON`: Enable/disable raw JSON export (1=enable, 0=disable)
+- `INCLUDE_ADVANCED_FIELDS`: Include additional fields from Harvest API in CSV export (1=enable, 0=disable)
 - `FROM_DATE`: Optional start date in YYYY-MM-DD format
 - `TO_DATE`: Optional end date in YYYY-MM-DD format
 - `TZ`: Set the timezone for the container (default: UTC)
@@ -190,6 +200,30 @@ See `.env.example` for a complete template with explanations.
 - **Data validation errors?** The script uses Pydantic models to validate API data - check the error messages for details on fields that failed validation.
 
 ---
+
+## Advanced Field Output
+
+The script supports exporting additional fields from the Harvest API beyond the standard ones. This is useful for detailed reporting, billing verification, and advanced time tracking analysis.
+
+### Available Additional Fields
+
+When the `INCLUDE_ADVANCED_FIELDS` option is enabled, the following fields are added to the CSV output:
+
+- **Rounded Hours**: Hours after rounding rules have been applied
+- **Is Billed**: Whether the time entry has been billed on an invoice
+- **Is Locked**: Whether the time entry is locked for editing
+- **Started/Ended**: Start and end times for the entry (if available)
+- **Created At/Updated At**: Timestamps for when the entry was created and last updated
+- **Cost Rate**: The cost rate applied to the time entry (if available)
+
+### Enabling Advanced Fields
+
+To include these fields in your CSV exports:
+
+1. Set `INCLUDE_ADVANCED_FIELDS=1` in your `.env` file, or
+2. Add `INCLUDE_ADVANCED_FIELDS=1` to your environment variables
+
+In a multi-user setup, this setting applies globally to all users processed in that run.
 
 ## Running Locally Without Docker
 

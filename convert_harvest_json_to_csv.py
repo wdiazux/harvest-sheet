@@ -84,9 +84,21 @@ class HarvestTimeEntry(BaseModel):
     id: int
     spent_date: str
     hours: float
+    hours_without_timer: Optional[float] = None
+    rounded_hours: Optional[float] = None
     notes: Optional[str] = ''
     billable: bool = False
     billable_rate: Optional[float] = None
+    cost_rate: Optional[float] = None
+    is_locked: Optional[bool] = None
+    locked_reason: Optional[str] = None
+    is_closed: Optional[bool] = None
+    is_billed: Optional[bool] = None
+    is_running: Optional[bool] = False
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    started_time: Optional[str] = None
+    ended_time: Optional[str] = None
     user: HarvestUser
     client: HarvestClient
     project: HarvestProject
@@ -106,9 +118,17 @@ class HarvestTimeEntry(BaseModel):
     def billable_text(self) -> str:
         return 'Yes' if self.billable else 'No'
         
+    @property
+    def billed_text(self) -> str:
+        return 'Yes' if self.is_billed else 'No'
+        
+    @property
+    def locked_text(self) -> str:
+        return 'Yes' if self.is_locked else 'No'
+        
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for DataFrame creation"""
-        return {
+        base_dict = {
             'Date': self.spent_date,
             'Client': self.client.name,
             'Project': self.project.name,
@@ -121,6 +141,23 @@ class HarvestTimeEntry(BaseModel):
             'First Name': self.user.first_name,
             'Last Name': self.user.last_name,
         }
+        
+        # Add advanced fields if requested through environment variable
+        include_advanced = get_env_variable('INCLUDE_ADVANCED_FIELDS', '0').lower() in ('1', 'true', 'yes')
+        if include_advanced:
+            advanced_fields = {
+                'Rounded Hours': self.rounded_hours or self.hours,
+                'Is Billed': self.billed_text,
+                'Is Locked': self.locked_text,
+                'Started': self.started_time or '',
+                'Ended': self.ended_time or '',
+                'Created At': self.created_at or '',
+                'Updated At': self.updated_at or '',
+                'Cost Rate': self.cost_rate or '',
+            }
+            base_dict.update(advanced_fields)
+            
+        return base_dict
 
 class HarvestResponse(BaseModel):
     time_entries: List[HarvestTimeEntry] = []
