@@ -16,30 +16,121 @@ except ImportError:
     build = None
     # Will raise error if upload is attempted without dependencies
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # dotenv not installed, ignore
+def load_environment():
+    """Load environment variables from .env file.
+    
+    Looks for .env file in the script directory or parent directories.
+    """
+    try:
+        from dotenv import load_dotenv, find_dotenv
+        
+        # First try looking for a specific .env file in the current directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        local_env = os.path.join(script_dir, '.env')
+        
+        if os.path.isfile(local_env):
+            load_dotenv(local_env)
+            logging.info(f"Loaded environment variables from {local_env}")
+        else:
+            # Use find_dotenv to look in parent directories
+            env_path = find_dotenv()
+            if env_path:
+                load_dotenv(env_path)
+                logging.info(f"Loaded environment variables from {env_path}")
+            else:
+                logging.warning("No .env file found, using system environment variables")
+                
+        # Automatically set USER_PREFIX if WILLIAM_DIAZ_ prefixed variables exist
+        if os.environ.get('WILLIAM_DIAZ_HARVEST_ACCOUNT_ID'):
+            os.environ['USER_PREFIX'] = 'WILLIAM_DIAZ_'
+            logging.info("Automatically set USER_PREFIX to WILLIAM_DIAZ_")
+            
+    except ImportError:
+        logging.warning("python-dotenv not installed, using system environment variables")
+    except Exception as e:
+        logging.error(f"Error loading .env file: {e}")
 
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+# Set up logging
+def setup_logging(debug=False):
+    """Configure logging with the specified debug level."""
+    level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(level=level, format='[%(levelname)s] %(message)s')
+    return logging.getLogger(__name__)
+
+# Initialize logging with default level
+logger = setup_logging()
 
 def get_env_variable(var_name: str, default: Optional[str] = None, required: bool = False) -> str:
-    """Return an environment variable, or raise a clear error if required and missing."""
-    value = os.environ.get(var_name, default)
+    """Return an environment variable, with support for user prefixes.
+    
+    Args:
+        var_name: The base name of the environment variable
+        default: Default value if variable is not found
+        required: If True, raises an error if variable is not found
+        
+    Returns:
+        The value of the environment variable, or the default
+        
+    Raises:
+        RuntimeError: If required is True and variable is not found
+    """
+    # Get the current user prefix if set
+    prefix = os.environ.get('USER_PREFIX', '')
+    
+    # Try to get the prefixed version first, then fall back to unprefixed
+    prefixed_name = f"{prefix}{var_name}" if prefix else var_name
+    value = os.environ.get(prefixed_name, os.environ.get(var_name, default))
+    
     if required and not value:
-        raise RuntimeError(f"Environment variable '{var_name}' is required but not set.")
+        raise RuntimeError(
+            f"Required environment variable not found: {prefixed_name} or {var_name}"
+        )
     return value
 
 
 def download_time_entries(account_id: str, auth_token: str, user_agent: str, from_date: str, to_date: str) -> Dict[str, Any]:
-    """Fetch all Harvest time entries for the given date range, handling pagination."""
-    base_url = f"https://api.harvestapp.com/v2/time_entries"
+    """Fetch all Harvest time entries for the given date range, handling pagination.
+    When a HARVEST_USER_ID is set, time entries will be filtered for that specific user.
+    
+    Args:
+        account_id: Harvest account ID (required)
+        auth_token: Harvest authentication token (required)
+        user_agent: User agent string for the API request (required)
+        from_date: Start date in YYYY-MM-DD format (required)
+        to_date: End date in YYYY-MM-DD format (required)
+        
+    Returns:
+        Dictionary containing the time entries data
+        
+    Raises:
+        requests.RequestException: If there's an error with the API request
+        ValueError: If required parameters are missing
+    """
+    if not all([account_id, auth_token, user_agent, from_date, to_date]):
+        raise ValueError("Missing required parameters for download_time_entries")
+    
+    base_url = "https://api.harvestapp.com/v2/time_entries"
+    
+    # Get user ID using the same prefixing logic as other environment variables
+    user_id = get_env_variable('HARVEST_USER_ID', default='')
+    
     params = {
         "from": from_date,
         "to": to_date,
-        "per_page": 100
+        "per_page": 100,
     }
+    
+    # Only add user_id to params if it's provided
+    if user_id:
+        try:
+            # Make sure the user_id is a number before sending to API
+            params["user_id"] = str(int(user_id))
+            logging.info(f"Filtering time entries for user ID: {user_id}")
+        except ValueError:
+            logging.error(f"Invalid HARVEST_USER_ID value: {user_id}. Must be a numeric ID.")
+            logging.warning("Continuing without user_id filter")
+    
+    logging.info(f"Fetching time entries from {from_date} to {to_date}")
     headers = {
         'Harvest-Account-ID': account_id,
         'Authorization': f'Bearer {auth_token}',
@@ -90,12 +181,15 @@ def parse_time_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             # Safely get employee status from user_assignment
             is_employee = entry.get("user_assignment", {}).get("is_active", False)
             
+            # Get project code safely
+            project = entry.get("project", {})
+            project_code = project.get("code") or ""
+            
             row = {
-                # Field order must match the target CSV exactly
                 "Date": entry.get("spent_date", ""),
                 "Client": entry.get("client", {}).get("name", ""),
-                "Project": entry.get("project", {}).get("name", ""),
-                "Project Code": entry.get("project", {}).get("code", ""),
+                "Project": project.get("name", ""),
+                "Project Code": project_code,
                 "Task": entry.get("task", {}).get("name", ""),
                 "Notes": entry.get("notes") or "",
                 "Hours": entry.get("hours", 0.0),
@@ -103,10 +197,13 @@ def parse_time_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "Invoiced?": "Yes" if entry.get("is_billed") else "No",
                 "First Name": first_name,
                 "Last Name": last_name,
-                "Roles": "Developer",  # Not provided by Harvest API
+                "Roles": "Developer",  # Default role
                 "Employee?": "Yes" if is_employee else "No",
                 "External Reference URL": entry.get("external_reference", {}).get("permalink", "") 
-                                         if entry.get("external_reference") else ""
+                                         if entry.get("external_reference") else "",
+                "Harvest ID": str(entry.get("id", "")),  # Ensure ID is a string
+                "Approved": "Yes" if entry.get("is_locked") else "No",  # Assuming locked means approved
+                "Department": ""  # Not provided by Harvest API
             }
             rows.append(row)
             
@@ -118,20 +215,51 @@ def parse_time_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def write_csv(rows: List[Dict[str, Any]], output_file: str) -> None:
-    """Write the parsed rows to a CSV file with the specified output filename."""
+    """Write the parsed rows to a CSV file with the specified output filename.
+    
+    Args:
+        rows: List of dictionaries containing the data to write
+        output_file: Path to the output CSV file. If not absolute, will be created in ./output/
+    """
+    # If output_file is not an absolute path, create it in ./output/
+    if not os.path.isabs(output_file):
+        output_dir = 'output'  # Default to local output directory when not in Docker
+        # Check if we're running in a Docker container
+        if os.path.exists('/.env') or os.path.isfile('/app/.env'):
+            output_dir = '/app/output'
+        
+        # Create the output directory if it doesn't exist
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as e:
+            # If we can't create the directory, fall back to current directory
+            logging.warning(f"Could not create directory {output_dir}, using current directory: {e}")
+            output_dir = '.'
+            
+        output_file = os.path.join(output_dir, os.path.basename(output_file))
+    else:
+        # Ensure the directory exists if it's an absolute path
+        dir_path = os.path.dirname(output_file) or '.'
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+        except OSError as e:
+            logging.error(f"Could not create directory {dir_path}: {e}")
+            raise
+    
     fieldnames = [
-        "Date", "Client", "Project", "Project Code", "Task", "Notes", "Hours",
-        "Billable?", "Invoiced?", "First Name", "Last Name", "Roles", "Employee?",
-        "External Reference URL"
+        'Date', 'Client', 'Project', 'Project Code', 'Task', 'Notes', 'Hours',
+        'Billable?', 'Invoiced?', 'First Name', 'Last Name', 'Roles', 'Employee?',
+        'External Reference URL', 'Harvest ID', 'Approved', 'Department'
     ]
+    
     try:
-        with open(output_file, "w", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        with open(output_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
-        logging.info(f"CSV export completed: {output_file}")
-    except Exception as e:
-        logging.error(f"Failed to write CSV: {e}")
+        logging.info(f"Successfully wrote {len(rows)} rows to {output_file}")
+    except IOError as e:
+        logging.error(f"Error writing to {output_file}: {e}")
         raise
 
 
@@ -193,25 +321,63 @@ def get_last_week_range() -> Tuple[str, str]:
 def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: str):
     """Upload a CSV file to a specific Google Sheet tab, replacing its contents.
 
-    Supports credentials from split environment variables.
+    Uses Google Service Account credentials from environment variables.
     """
     if not service_account or not build:
         raise ImportError("Google API dependencies not installed. Run: pip install google-api-python-client google-auth")
     
     try:
-        # Try to load Google credentials from Environment Variables
+        # Load Google credentials from Environment Variables
+        project_id = get_env_variable('GOOGLE_SA_PROJECT_ID', required=True)
+        private_key_id = get_env_variable('GOOGLE_SA_PRIVATE_KEY_ID', required=True)
+        client_email = get_env_variable('GOOGLE_SA_CLIENT_EMAIL', required=True)
+        client_id = get_env_variable('GOOGLE_SA_CLIENT_ID', required=True)
+        universe_domain = get_env_variable('GOOGLE_SA_UNIVERSE_DOMAIN', default="googleapis.com")
+        
+        # Read GOOGLE_SA_PRIVATE_KEY directly from environment
+        # The issue was that get_env_variable wasn't working well with the private key
+        # because it contains special characters
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'), 'r') as env_file:
+            env_content = env_file.read()
+            
+        # Extract the private key using a more direct method
+        import re
+        private_key_match = re.search(r'GOOGLE_SA_PRIVATE_KEY=(["\'])(.+?)\1', env_content, re.DOTALL)
+        
+        if private_key_match:
+            # Get the raw key (without quotes)
+            private_key = private_key_match.group(2)
+            # Replace \n with actual newlines
+            private_key = private_key.replace('\\n', '\n')
+            logging.info(f"Successfully loaded private key from .env ({len(private_key)} characters)")
+        else:
+            # Fallback - try reading directly from environment
+            logging.warning("Could not extract private key from .env file, trying environment variables")
+            private_key = os.environ.get('GOOGLE_SA_PRIVATE_KEY', '')
+            private_key = private_key.replace('\\n', '\n')
+            
+            if len(private_key) < 100:  # A valid key should be much longer
+                logging.error(f"Private key appears too short: {len(private_key)} characters")
+                raise ValueError("Invalid or missing private key")
+                
+        # Validate the key format
+        if not private_key.startswith("-----BEGIN PRIVATE KEY-----"):
+            logging.error("Private key has incorrect format")
+            raise ValueError("Invalid private key format")
+        
+        # Create credentials dictionary for service account auth
         credentials_dict = {
             "type": "service_account",
-            "project_id": get_env_variable('GOOGLE_SA_PROJECT_ID', required=True),
-            "private_key_id": get_env_variable('GOOGLE_SA_PRIVATE_KEY_ID', required=True),
-            "private_key": get_env_variable('GOOGLE_SA_PRIVATE_KEY', required=True).replace('\\n', '\n'),
-            "client_email": get_env_variable('GOOGLE_SA_CLIENT_EMAIL', required=True),
-            "client_id": get_env_variable('GOOGLE_SA_CLIENT_ID', required=True),
+            "project_id": project_id,
+            "private_key_id": private_key_id,
+            "private_key": private_key,
+            "client_email": client_email,
+            "client_id": client_id,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{get_env_variable('GOOGLE_SA_CLIENT_EMAIL', required=True)}",
-            "universe_domain": get_env_variable('GOOGLE_SA_UNIVERSE_DOMAIN', default="googleapis.com")
+            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{client_email}",
+            "universe_domain": universe_domain
         }
         
         # Generate credentials from the dictionary
@@ -227,13 +393,16 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
         raise
 
     try:
-        # Read the CSV data
-        with open(csv_file, 'r') as f:
-            csv_reader = csv.reader(f)
-            values = list(csv_reader)
+        # Read CSV file as 2D array of values
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            values = list(reader)
         
-        # Clear the sheet first
-        clear_request = service.spreadsheets().values().clear(
+        # Get the spreadsheet and clear values in the specified tab
+        sheet = service.spreadsheets()
+        
+        # Clear existing values
+        clear_request = sheet.values().clear(
             spreadsheetId=spreadsheet_id,
             range=sheet_name,
             body={}
@@ -241,7 +410,7 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
         clear_request.execute()
         
         # Update with new values
-        update_request = service.spreadsheets().values().update(
+        update_request = sheet.values().update(
             spreadsheetId=spreadsheet_id,
             range=sheet_name,
             valueInputOption='USER_ENTERED',
@@ -261,12 +430,45 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
 
 def main() -> None:
     """Main entry point for the script: parses arguments, fetches data, writes CSV, and optionally uploads to Google Sheets."""
+    # Load environment variables first, so they're available throughout the function
+    load_environment()
+    
     parser = argparse.ArgumentParser(description="Convert Harvest time entries to CSV format")
     parser.add_argument('--from-date', default=None, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--to-date', default=None, help='End date (YYYY-MM-DD)')
-    parser.add_argument('--output', default=None, help='Output CSV file name')
+    parser.add_argument('--output', default=None, help='Output CSV file name (overrides env var)')
     parser.add_argument('--json', default=None, help='(Optional) Save raw JSON to this file')
+    parser.add_argument('--user', help='User prefix for environment variables (e.g., WILLIAM_DIAZ_)')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
+    
+    # If --user argument is provided, override the automatically set USER_PREFIX
+    if args.user:
+        os.environ['USER_PREFIX'] = args.user
+        logging.info(f"Set USER_PREFIX to {args.user} from command line argument")
+    
+    # Reconfigure logging if debug flag is set
+    global logger
+    logger = setup_logging(debug=args.debug)
+    
+    # Set user prefix if provided via command line
+    if args.user:
+        os.environ['USER_PREFIX'] = args.user.upper()
+    # Otherwise, try to find a user prefix in the environment variables
+    elif 'USER_PREFIX' not in os.environ:
+        # Look for any environment variable that ends with _HARVEST_USER_AGENT
+        for key in os.environ:
+            if key.endswith('_HARVEST_USER_AGENT'):
+                prefix = key.replace('_HARVEST_USER_AGENT', '_')
+                os.environ['USER_PREFIX'] = prefix
+                logging.info(f"Auto-detected user prefix from environment: {prefix}")
+                break
+    
+    # Get the current user prefix for logging
+    prefix = os.environ.get('USER_PREFIX', '')
+    user_email = get_env_variable('HARVEST_USER_AGENT', 'unknown user')
+    logging.info(f"Processing time entries for: {user_email} (Prefix: {prefix or 'none'})")
+    
 
     # Determine date range
     # Priority: CLI arguments > environment variables > last week
@@ -279,11 +481,11 @@ def main() -> None:
         logging.info(f"Using --from-date and --to-date arguments: {from_date} to {to_date}")
     elif args.from_date:
         from_dt = datetime.strptime(args.from_date, '%Y-%m-%d')
-        from_date, to_date = get_week_range(from_dt=from_dt)
+        from_date, to_date = get_last_week_range()
         logging.info(f"Only --from-date provided, using range: {from_date} to {to_date}")
     elif args.to_date:
         to_dt = datetime.strptime(args.to_date, '%Y-%m-%d')
-        from_date, to_date = get_week_range(to_dt=to_dt)
+        from_date, to_date = get_last_week_range()
         logging.info(f"Only --to-date provided, using range: {from_date} to {to_date}")
     elif env_from and env_to:
         from_date = env_from
@@ -291,46 +493,73 @@ def main() -> None:
         logging.info(f"Using FROM_DATE and TO_DATE from environment: {from_date} to {to_date}")
     elif env_from:
         from_date_dt = datetime.strptime(env_from, '%Y-%m-%d')
-        from_date, to_date = get_week_range(from_dt=from_date_dt)
+        from_date, to_date = get_last_week_range()
         logging.info(f"Only FROM_DATE from environment, using range: {from_date} to {to_date}")
     elif env_to:
         to_date_dt = datetime.strptime(env_to, '%Y-%m-%d')
-        from_date, to_date = get_week_range(to_dt=to_date_dt)
+        from_date, to_date = get_last_week_range()
         logging.info(f"Only TO_DATE from environment, using range: {from_date} to {to_date}")
     else:
         from_date, to_date = get_last_week_range()
         logging.info(f"No date range provided, using last week: {from_date} to {to_date}")
 
     # Determine output paths
-    output_dir = os.environ.get('OUTPUT_DIR', 'output')
-    output_name = os.environ.get('CSV_OUTPUT_FILE') or args.output or 'harvest_export.csv'
+    output_name = args.output or get_env_variable('CSV_OUTPUT_FILE', 'harvest_export.csv')
     
-    # Handle output file path
-    if os.path.isabs(output_name):
-        output_file = output_name
+    # Set default output directory based on environment
+    default_output_dir = 'output'  # Default to local output directory
+    if os.path.exists('/.env') or os.path.isfile('/app/.env'):
+        default_output_dir = '/app/output'  # Use Docker path if in container
+    
+    output_dir = os.environ.get('OUTPUT_DIR', default_output_dir)
+    
+    # If output file doesn't have a path, put it in the output directory
+    if not os.path.dirname(output_name):
+        output_file = os.path.join(output_dir, output_name)
     else:
-        output_file = os.path.join(output_dir, os.path.basename(output_name))
+        output_file = output_name
+        
+    # Ensure output directory exists
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(output_file)) or '.', exist_ok=True)
+    except OSError as e:
+        logging.error(f"Could not create output directory: {e}")
+        # Fall back to current directory
+        output_file = os.path.join('.', os.path.basename(output_file))
         
     # Ensure output directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     logging.info(f"Using output file: {output_file}")
     
     # JSON export settings
-    json_file = os.environ.get('HARVEST_RAW_JSON') or args.json
+    default_json_path = os.path.join(output_dir, 'harvest_raw.json')
+    json_file = args.json or default_json_path
     enable_raw_json = os.environ.get('ENABLE_RAW_JSON') == '1'
 
-    # Get Harvest API credentials (ENV-first)
+    # Get Harvest API credentials with support for user prefixes
     try:
         account_id = get_env_variable('HARVEST_ACCOUNT_ID', required=True)
         auth_token = get_env_variable('HARVEST_AUTH_TOKEN', required=True)
-        user_agent = get_env_variable('HARVEST_USER_AGENT', default='Harvest API Script')
+        user_agent = get_env_variable('HARVEST_USER_AGENT', 'Harvest API Script')
+        
+        logging.info(f"Using Harvest account: {account_id}")
+        logging.info(f"Authenticated as: {user_agent}")
+        
     except RuntimeError as e:
-        logging.critical(str(e))
+        logging.critical(f"Configuration error: {e}")
+        logging.info("Make sure to set the required environment variables with or without a user prefix")
         return
 
     # Download data
     try:
+        # Download time entries
         data = download_time_entries(account_id, auth_token, user_agent, from_date, to_date)
+    except ValueError as e:
+        logging.critical(f"Validation error: {e}")
+        return
+    except requests.RequestException as e:
+        logging.critical(f"Failed to download time entries: {e}")
+        return
     except Exception as e:
         logging.critical(f"Failed to download time entries: {e}")
         return
@@ -338,12 +567,15 @@ def main() -> None:
     # Optionally save raw JSON
     if json_file and (enable_raw_json or args.json):
         try:
-            os.makedirs(os.path.dirname(json_file), exist_ok=True)
-            with open(json_file, "w") as jf:
-                json.dump(data, jf, indent=2)
-            logging.info(f"Raw JSON saved to: {json_file}")
-        except Exception as e:
-            logging.error(f"Failed to save JSON: {e}")
+            # Ensure the directory exists
+            json_dir = os.path.dirname(json_file) or output_dir
+            os.makedirs(json_dir, exist_ok=True)
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            logging.info(f"Saved raw JSON to {json_file}")
+        except (IOError, OSError) as e:
+            logging.error(f"Error saving JSON to {json_file}: {e}")
+            # Don't fail the whole process if JSON save fails
 
     # Parse and write CSV
     try:
@@ -353,28 +585,46 @@ def main() -> None:
         logging.critical(f"Failed to process or write CSV: {e}")
         return
 
-    # Google Sheets upload if env vars present
-    spreadsheet_id = os.environ.get('GOOGLE_SHEET_ID')
-    sheet_name = os.environ.get('GOOGLE_SHEET_TAB_NAME')
-    upload_flag = os.environ.get('UPLOAD_TO_GOOGLE_SHEET', '1')  # Default to upload if vars present
-    # Only attempt upload if split env or JSON env is present
-    creds_env_present = all(os.environ.get(var) for var in [
-        'GOOGLE_SA_PROJECT_ID',
-        'GOOGLE_SA_PRIVATE_KEY_ID',
-        'GOOGLE_SA_PRIVATE_KEY',
-        'GOOGLE_SA_CLIENT_EMAIL',
-        'GOOGLE_SA_CLIENT_ID',
-    ])
-    if spreadsheet_id and sheet_name and upload_flag == '1' and creds_env_present:
+    # Google Sheets upload configuration
+    # These variables should be prefixed with the user's name (handled by get_env_variable)
+    spreadsheet_id = get_env_variable('GOOGLE_SHEET_ID')
+    sheet_name = get_env_variable('GOOGLE_SHEET_TAB_NAME')
+    upload_flag = get_env_variable('UPLOAD_TO_GOOGLE_SHEET', '0')
+    
+    # Check for required Google Sheets credentials (these are global variables)
+    creds_env_present = all(
+        os.environ.get(var) for var in [
+            'GOOGLE_SA_PROJECT_ID',
+            'GOOGLE_SA_PRIVATE_KEY_ID', 
+            'GOOGLE_SA_PRIVATE_KEY',
+            'GOOGLE_SA_CLIENT_EMAIL',
+            'GOOGLE_SA_CLIENT_ID'
+        ]
+    )
+    
+    # Determine if upload is enabled and required credentials are present
+    upload_enabled = upload_flag.lower() in ('1', 'true', 'yes')
+    sheets_configured = bool(spreadsheet_id and sheet_name)
+    
+    if upload_enabled:
+        logging.info("Google Sheets upload: enabled")
+        if not sheets_configured:
+            logging.error("Missing Google Sheet ID or Tab Name. Check your environment variables.")
+            return
+        
+        if not creds_env_present:
+            logging.error("Missing Google Service Account credentials. Check your environment variables.")
+            return
+            
         try:
             upload_csv_to_google_sheet(output_file, spreadsheet_id, sheet_name)
+            logging.info(f"Successfully uploaded to Google Sheet ID: {spreadsheet_id}, Tab: {sheet_name}")
         except Exception as e:
             logging.error(f"Failed to upload to Google Sheets: {e}")
     else:
-        logging.info("Skipping Google Sheets upload (env vars not set, credentials missing, or upload disabled)")
+        logging.info("Google Sheets upload: disabled (set UPLOAD_TO_GOOGLE_SHEET=1 to enable)")
 
 
 if __name__ == "__main__":
     # Usage: python convert_harvest_json_to_csv.py [--from-date YYYY-MM-DD] [--to-date YYYY-MM-DD] [--output FILE] [--json FILE]
     main()
-

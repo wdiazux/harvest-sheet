@@ -1,6 +1,6 @@
 # Harvest Sheet
 
-This project provides a script to convert Harvest time-tracking data to CSV, with optional Google Sheets upload. The project uses Buildah for container builds and NixOS for development.
+This project provides a script to convert Harvest time-tracking data to CSV, with optional Google Sheets upload. The script supports multiple users and scheduling via cron. The project uses Buildah for container builds and NixOS for development.
 
 ---
 
@@ -11,6 +11,7 @@ This project provides a script to convert Harvest time-tracking data to CSV, wit
   - [Quick Start: One-off Run](#quick-start-one-off-run)
   - [Automated Runs with Docker Compose](#automated-runs-with-docker-compose)
   - [Running on a Schedule (Cron)](#running-on-a-schedule-cron)
+  - [Multi-User Support](#multi-user-support)
   - [Environment Variables](#environment-variables)
   - [Advanced: Buildah & NixOS](#advanced-buildah--nixos)
   - [Troubleshooting](#troubleshooting)
@@ -22,9 +23,16 @@ This project provides a script to convert Harvest time-tracking data to CSV, wit
 
 ## General Use
 
-Below is an example of the workflow:
+Harvest Sheet automatically extracts time entries from Harvest and can upload them to Google Sheets. It supports multiple users with different API credentials and Google Sheets destinations.
 
 ### Harvest Sheet Workflow
+
+The application follows this workflow:
+
+1. Retrieves time entries from Harvest API for the specified date range (defaults to last week)
+2. Converts the data to CSV format
+3. Optionally uploads the CSV to Google Sheets
+4. When running via cron, processes all users found in the environment variables
 
 - Converts time-tracking data to CSV
 - Optionally uploads results to Google Sheets
@@ -77,25 +85,16 @@ This will start the service. Output files (if any) will be written to the `outpu
 
 ### Running on a Schedule (Cron)
 
-The image includes cron support for scheduled automation. By default, the container uses `/app/crontab.txt` with the following schedule:
+The Docker container comes with cron pre-configured to run the script on a regular schedule. The default schedule is defined in `crontab.txt`:
 
 ```
-# Set essential PATH and SHELL for cron jobs
-PATH=/usr/local/bin:/usr/bin:/bin
-SHELL=/bin/bash
-
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * /app/cron_wrapper.sh >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
-
-# Run the Harvest script at 12:00 AM every Monday
-0 0 * * 1 /app/cron_wrapper.sh >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+0 6,18 * * * cd /app && /app/cron_wrapper.sh >> /app/cron.log 2>> /app/cron.error.log
 ```
 
-This configuration runs the script:
-- At 6:00 AM and 6:00 PM every day
-- At 12:00 AM every Monday (weekly run)
+This configuration runs the script twice daily at 6:00 AM and 6:00 PM.
 
-All jobs use the `/app/cron_wrapper.sh` script which sets up the environment properly before executing the Python script. The jobs log their output to `/app/cron.log` and any errors to `/app/cron.error.log`.
+All jobs use the `/app/cron_wrapper.sh` script which sets up the environment properly before executing the Python script. The wrapper script automatically detects and processes all users found in the environment variables. The jobs log their output to `/app/cron.log` and any errors to `/app/cron.error.log`.
 
 #### To customize the schedule:
 1. Edit `crontab.txt` before building or mounting it into the container:
@@ -107,18 +106,69 @@ All jobs use the `/app/cron_wrapper.sh` script which sets up the environment pro
 2. The container starts cron automatically and tails `/app/cron.log`.
 3. Logs are available in the `cron.log` file inside the container (or mount `/app/cron.log` to your host).
 
+### Multi-User Support
+
+The application supports multiple users with different Harvest accounts and Google Sheets destinations. This is implemented through user-specific environment variables with prefixes.
+
+#### How Multi-User Support Works:
+
+1. Each user's variables are prefixed with their name (e.g., `FIRSTNAME_LASTNAME_HARVEST_ACCOUNT_ID`)
+2. The `cron_wrapper.sh` script automatically detects all users with Harvest credentials defined
+3. For each user, it sets the `USER_PREFIX` environment variable and runs the Python script
+4. The Python script uses the prefix to load the correct credentials for each user
+
+#### To Add a New User:
+
+1. Add their environment variables to `.env` with an appropriate prefix:
+   ```
+   FIRSTNAME_LASTNAME_HARVEST_ACCOUNT_ID=1234567
+   FIRSTNAME_LASTNAME_HARVEST_AUTH_TOKEN=your_token_here
+   FIRSTNAME_LASTNAME_HARVEST_USER_AGENT=first.last@example.com
+   FIRSTNAME_LASTNAME_HARVEST_USER_ID=7654321
+   FIRSTNAME_LASTNAME_CSV_OUTPUT_FILE=harvest_export_firstname_lastname.csv
+   FIRSTNAME_LASTNAME_GOOGLE_SHEET_ID=your_sheet_id
+   FIRSTNAME_LASTNAME_GOOGLE_SHEET_TAB_NAME=FirstName LastName
+   ```
+
+2. No other configuration is needed - the wrapper script will automatically detect and process the new user
+
 ### Environment Variables
 
-- See `.env.example` for all supported variables.
-- You can override variables at runtime with `-e VAR=value` or in your Compose file.
-- Docker-specific variables are available for customizing container behavior:
-  - `TZ`: Set the timezone for the container (default: UTC)
-  - `OUTPUT_DIR`: Directory for output files (default: /app/output)
-  - `ENABLE_RAW_JSON`: Enable/disable raw JSON export (1=enable, 0=disable)
-  - `HARVEST_RAW_JSON`: Location to store raw JSON if enabled
-  - `FROM_DATE`: Optional start date in YYYY-MM-DD format (if not using command-line args)
-  - `TO_DATE`: Optional end date in YYYY-MM-DD format (if not using command-line args)
-  - `CSV_OUTPUT_FILE`: Optional custom filename for the CSV output
+The application uses two types of environment variables:
+
+#### 1. User-Specific Variables (with prefix)
+
+Each user's variables are prefixed with their name (e.g., `FIRSTNAME_LASTNAME_`). The following variables are supported for each user:
+
+- `[PREFIX]_HARVEST_ACCOUNT_ID`: Harvest account ID for this user
+- `[PREFIX]_HARVEST_AUTH_TOKEN`: Harvest API token for authentication
+- `[PREFIX]_HARVEST_USER_AGENT`: Email address or identifier for API usage
+- `[PREFIX]_HARVEST_USER_ID`: User ID to filter time entries for just this user 
+- `[PREFIX]_CSV_OUTPUT_FILE`: Custom filename for the CSV output
+- `[PREFIX]_GOOGLE_SHEET_ID`: Google Sheet ID for uploading this user's data
+- `[PREFIX]_GOOGLE_SHEET_TAB_NAME`: Tab name within the Google Sheet
+- `[PREFIX]_UPLOAD_TO_GOOGLE_SHEET`: Enable/disable uploads (1=enable, 0=disable)
+
+#### 2. Global Variables (no prefix)
+
+These variables apply to all users:
+
+- `GOOGLE_SA_PROJECT_ID`: Google Service Account project ID
+- `GOOGLE_SA_PRIVATE_KEY_ID`: Google Service Account private key ID
+- `GOOGLE_SA_PRIVATE_KEY`: Google Service Account private key (begins with "-----BEGIN PRIVATE KEY-----")
+- `GOOGLE_SA_CLIENT_EMAIL`: Google Service Account client email
+- `GOOGLE_SA_CLIENT_ID`: Google Service Account client ID
+- `GOOGLE_SA_UNIVERSE_DOMAIN`: Google API universe domain (default: googleapis.com)
+
+#### Additional Configuration Variables
+
+- `OUTPUT_DIR`: Directory for output files (default: `/app/output` in Docker)
+- `ENABLE_RAW_JSON`: Enable/disable raw JSON export (1=enable, 0=disable)
+- `FROM_DATE`: Optional start date in YYYY-MM-DD format
+- `TO_DATE`: Optional end date in YYYY-MM-DD format
+- `TZ`: Set the timezone for the container (default: UTC)
+
+See `.env.example` for a complete template with explanations.
 
 ### Advanced: Buildah & NixOS
 

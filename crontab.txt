@@ -2,8 +2,11 @@
 PATH=/usr/local/bin:/usr/bin:/bin
 SHELL=/bin/bash
 
-# Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * /app/cron_wrapper.sh >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+# In the Docker container, the working directory is /app
+# All paths should be relative to /app
 
-# Run the Harvest script at 12:00 AM every Saturday
-0 0 * * 6 /app/cron_wrapper.sh >> /app/cron.log 2>&1 || echo "[ERROR] Harvest script failed at $(date)" >> /app/cron.error.log
+# Run the Harvest script at 6:00 AM and 6:00 PM every day
+0 6,18 * * * cd /app && /app/cron_wrapper.sh >> /app/logs/cron.log 2>> /app/logs/cron.error.log
+
+# Note: The cron_wrapper.sh script handles its own logging to timestamped files
+# in the /app/logs/ directory. The above log files will only contain basic execution info.

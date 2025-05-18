@@ -1,24 +1,120 @@
 #!/bin/bash
-# Script to run the Harvest script with environment variables
+# Script to run the Harvest script for multiple users in a Docker container
+# This script runs inside a container where the working directory is /app
 
-# Load environment variables needed by the Harvest script
-if [ -f /proc/1/environ ]; then
-    # Extract only the environment variables we need from the container process
-    # This is safer than exporting all variables
-    while IFS= read -r -d '' var; do
-        # Only export variables that match our patterns
-        if [[ $var =~ ^(HARVEST_|GOOGLE_|FROM_DATE|TO_DATE|OUTPUT_DIR|CSV_OUTPUT_FILE|UPLOAD_TO|ENABLE_RAW_JSON|HARVEST_RAW_JSON) ]]; then
-            export "$var"
-        fi
-    done < /proc/1/environ
+# Exit on error
+set -e
+
+# Set container paths
+CONTAINER_HOME="/app"
+SCRIPT_DIR="${CONTAINER_HOME}"
+cd "${CONTAINER_HOME}"  # Ensure we're in the correct directory
+
+# Set up logging
+LOG_DIR="${CONTAINER_HOME}/logs"
+LOG_FILE="${LOG_DIR}/harvest_sync_$(date +%Y%m%d_%H%M%S).log"
+ERROR_LOG_FILE="${LOG_DIR}/harvest_sync_errors_$(date +%Y%m%d_%H%M%S).log"
+
+# Create necessary directories
+mkdir -p "${LOG_DIR}" "${CONTAINER_HOME}/output"
+
+# Function to log messages
+log() {
+    local level=$1
+    local message=$2
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[${timestamp}] [${level}] ${message}" | tee -a "${LOG_FILE}"
+}
+
+# Function to handle errors
+error() {
+    log "ERROR" "$1"
+    log "ERROR" "$1" >> "${ERROR_LOG_FILE}"
+    exit 1
+}
+
+# Log script start
+log "INFO" "Starting Harvest sync process"
+
+# Load environment variables
+ENV_FILE="/app/.env"
+if [ -f "${ENV_FILE}" ]; then
+    # shellcheck source=/dev/null
+    source "${ENV_FILE}"
+    log "INFO" "Loaded environment variables from ${ENV_FILE}"
+else
+    error "Error: ${ENV_FILE} not found in container"
 fi
 
-# Source .env file if it exists (will override container environment variables)
-if [ -f /app/.env ]; then
-    set -a  # automatically export all variables
-    source /app/.env
-    set +a
+# Function to process a single user's data
+process_user() {
+    local user_prefix=$1
+    log "INFO" "Processing user with prefix: ${user_prefix}"
+    
+    # Export the user prefix for the Python script
+    export USER_PREFIX="${user_prefix}"
+    
+    # Get the current date in YYYY-MM-DD format
+    local today=$(date +%Y-%m-%d)
+    # Get the date 7 days ago in YYYY-MM-DD format
+    local one_week_ago=$(date -v-7d +%Y-%m-%d)
+    
+    log "INFO" "Fetching time entries from ${one_week_ago} to ${today}"
+    
+    # Run the script with the date range
+    if ! python3 "${SCRIPT_DIR}/convert_harvest_json_to_csv.py" \
+        --from-date "${one_week_ago}" \
+        --to-date "${today}" \
+        --user "${user_prefix}" 2>> "${ERROR_LOG_FILE}"; then
+        log "ERROR" "Failed to process user ${user_prefix}"
+        return 1
+    fi
+    
+    log "INFO" "Successfully processed user: ${user_prefix}"
+    return 0
+}
+
+# Main execution
+log "INFO" "Starting user processing"
+
+# Process all users with HARVEST_ACCOUNT_ID in their environment variables
+# This finds all environment variables that end with _HARVEST_ACCOUNT_ID
+user_count=0
+success_count=0
+
+# Get all environment variables that end with _HARVEST_ACCOUNT_ID
+while IFS= read -r var_name; do
+    # Extract the prefix (everything before _HARVEST_ACCOUNT_ID)
+    user_prefix="${var_name%_HARVEST_ACCOUNT_ID}"
+    
+    # Skip if no prefix found
+    [ -z "${user_prefix}" ] && continue
+    
+    log "INFO" "Found user configuration: ${user_prefix}"
+    
+    # Process this user
+    if process_user "${user_prefix}"; then
+        ((success_count++))
+    fi
+    
+    ((user_count++))
+    
+    # Add a small delay between users to avoid rate limiting
+    sleep 2
+    
+done < <(env | grep -E '_HARVEST_ACCOUNT_ID=' | cut -d= -f1)
+
+# Log summary
+log "INFO" "Processed ${success_count} of ${user_count} users successfully"
+
+if [ ${success_count} -eq 0 ] && [ ${user_count} -gt 0 ]; then
+    error "Failed to process any users. Check ${ERROR_LOG_FILE} for details."
+elif [ ${success_count} -lt ${user_count} ]; then
+    log "WARNING" "Some users failed to process. Check ${ERROR_LOG_FILE} for details."
+else
+    log "INFO" "All users processed successfully"
 fi
 
-# Run the Python script with absolute paths and pass all arguments
-/usr/local/bin/python /app/convert_harvest_json_to_csv.py "$@"
+log "INFO" "Harvest sync completed at $(date)"
+
+exit 0
