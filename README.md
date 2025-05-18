@@ -30,9 +30,10 @@ Harvest Sheet automatically extracts time entries from Harvest and can upload th
 The application follows this workflow:
 
 1. Retrieves time entries from Harvest API for the specified date range (defaults to last week)
-2. Converts the data to CSV format
-3. Optionally uploads the CSV to Google Sheets
-4. When running via cron, processes all users found in the environment variables
+2. Validates and transforms the data using Pydantic models
+3. Converts the data to CSV format with pandas
+4. Optionally uploads the CSV to Google Sheets
+5. When running via cron, processes all users found in the environment variables
 
 - Converts time-tracking data to CSV
 - Optionally uploads results to Google Sheets
@@ -89,12 +90,19 @@ The Docker container comes with cron pre-configured to run the script on a regul
 
 ```
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * cd /app && /app/cron_wrapper.sh >> /app/cron.log 2>> /app/cron.error.log
+0 6,18 * * * cd /app && /app/cron_wrapper.sh >> /app/logs/cron.log 2>> /app/logs/cron.error.log
 ```
 
 This configuration runs the script twice daily at 6:00 AM and 6:00 PM.
 
-All jobs use the `/app/cron_wrapper.sh` script which sets up the environment properly before executing the Python script. The wrapper script automatically detects and processes all users found in the environment variables. The jobs log their output to `/app/cron.log` and any errors to `/app/cron.error.log`.
+All jobs use the `/app/cron_wrapper.sh` script which:
+1. Sets up logging with timestamps
+2. Loads environment variables from `/app/.env`
+3. Automatically detects all user prefixes in the environment
+4. Processes each user's data with the appropriate environment variables
+5. Generates detailed logs in the `/app/logs/` directory
+
+The wrapper script uses Rich for enhanced terminal output and provides detailed progress information during execution.
 
 #### To customize the schedule:
 1. Edit `crontab.txt` before building or mounting it into the container:
@@ -141,28 +149,26 @@ The application uses two types of environment variables:
 Each user's variables are prefixed with their name (e.g., `FIRSTNAME_LASTNAME_`). The following variables are supported for each user:
 
 - `[PREFIX]_HARVEST_ACCOUNT_ID`: Harvest account ID for this user
-- `[PREFIX]_HARVEST_AUTH_TOKEN`: Harvest API token for authentication
-- `[PREFIX]_HARVEST_USER_AGENT`: Email address or identifier for API usage
-- `[PREFIX]_HARVEST_USER_ID`: User ID to filter time entries for just this user 
-- `[PREFIX]_CSV_OUTPUT_FILE`: Custom filename for the CSV output
-- `[PREFIX]_GOOGLE_SHEET_ID`: Google Sheet ID for uploading this user's data
+- `[PREFIX]_HARVEST_AUTH_TOKEN`: Personal access token
+- `[PREFIX]_HARVEST_USER_AGENT`: User agent (usually your email)
+- `[PREFIX]_HARVEST_USER_ID`: (Optional) Specific user ID to filter time entries
+- `[PREFIX]_GOOGLE_SHEET_ID`: Google Sheet ID for upload
 - `[PREFIX]_GOOGLE_SHEET_TAB_NAME`: Tab name within the Google Sheet
-- `[PREFIX]_UPLOAD_TO_GOOGLE_SHEET`: Enable/disable uploads (1=enable, 0=disable)
 
-#### 2. Global Variables (no prefix)
-
-These variables apply to all users:
+#### 2. Global Variables
 
 - `GOOGLE_SA_PROJECT_ID`: Google Service Account project ID
-- `GOOGLE_SA_PRIVATE_KEY_ID`: Google Service Account private key ID
-- `GOOGLE_SA_PRIVATE_KEY`: Google Service Account private key (begins with "-----BEGIN PRIVATE KEY-----")
-- `GOOGLE_SA_CLIENT_EMAIL`: Google Service Account client email
-- `GOOGLE_SA_CLIENT_ID`: Google Service Account client ID
-- `GOOGLE_SA_UNIVERSE_DOMAIN`: Google API universe domain (default: googleapis.com)
+- `GOOGLE_SA_PRIVATE_KEY_ID`: Private key ID
+- `GOOGLE_SA_PRIVATE_KEY`: Private key (replace newlines with `\n`)
+- `GOOGLE_SA_CLIENT_EMAIL`: Service account email
+- `GOOGLE_SA_CLIENT_ID`: Service account client ID
+- `GOOGLE_SA_UNIVERSE_DOMAIN`: (Optional) API universe domain (default: googleapis.com)
+- `GOOGLE_SHEET_ID`: Default Google Sheet ID (if not using user-specific)
+- `GOOGLE_SHEET_TAB_NAME`: Default tab name (if not using user-specific)
 
 #### Additional Configuration Variables
 
-- `OUTPUT_DIR`: Directory for output files (default: `/app/output` in Docker)
+- `UPLOAD_TO_GOOGLE_SHEET`: Enable/disable Google Sheets upload (1=enable, 0=disable)
 - `ENABLE_RAW_JSON`: Enable/disable raw JSON export (1=enable, 0=disable)
 - `FROM_DATE`: Optional start date in YYYY-MM-DD format
 - `TO_DATE`: Optional end date in YYYY-MM-DD format
@@ -177,10 +183,89 @@ See `.env.example` for a complete template with explanations.
 
 ### Troubleshooting
 
-- **No output?** Check the logs: `docker logs <container>` or inspect `/app/cron.log`. For error details, check `/app/cron.error.log`.
-- **Google Sheets upload fails?** Double-check your service account credentials and sharing permissions.
-- **Environment not loading?** Make sure `.env` is present and correctly formatted.
+- **No output?** Check the logs: `docker logs <container>` or inspect the log files in `/app/logs/`. The script generates timestamped log files for each run.
+- **Google Sheets upload fails?** Double-check your service account credentials and ensure the sheet is shared with the service account email. The script provides detailed error messages with Rich output.
+- **Environment not loading?** Make sure `.env` is present and correctly formatted. Check user prefixes and required variables.
 - **Cron jobs not running?** Verify the container's timezone with `TZ` environment variable if your jobs appear to run at unexpected times.
+- **Data validation errors?** The script uses Pydantic models to validate API data - check the error messages for details on fields that failed validation.
+
+---
+
+## Running Locally Without Docker
+
+You can run the script directly on your local machine without Docker. This is useful for development, testing, or if you prefer not to use containers.
+
+### Prerequisites
+
+1. Python 3.9 or higher installed on your system
+2. Required Python packages installed
+
+### Installation
+
+1. Clone the repository or download the source code
+2. Install the required dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Create a `.env` file in the project root with your configuration (see [Environment Variables](#environment-variables))
+
+### Running the Script
+
+Run the script directly with Python:
+
+```bash
+# Basic usage (will use last week as default date range)
+python convert_harvest_json_to_csv.py
+
+# Specify a date range
+python convert_harvest_json_to_csv.py --from-date 2025-05-01 --to-date 2025-05-15
+
+# Specify a custom output file
+python convert_harvest_json_to_csv.py --output my_timesheet.csv
+
+# Enable debug logging
+python convert_harvest_json_to_csv.py --debug
+
+# Specify a user prefix (for multi-user setups)
+python convert_harvest_json_to_csv.py --user JOHN_DOE
+
+# Save raw JSON output
+python convert_harvest_json_to_csv.py --json harvest_data.json
+```
+
+### Command-Line Arguments
+
+- `--from-date`: Start date for time entries (YYYY-MM-DD)
+- `--to-date`: End date for time entries (YYYY-MM-DD)
+- `--output`: Custom output file path for the CSV
+- `--json`: Save raw API response as JSON to the specified file
+- `--user`: Override the user prefix for environment variables
+- `--debug`: Enable debug logging
+
+### Expected Output
+
+When running successfully, the script will:
+
+1. Display a header with the application name and version
+2. Show user information and configuration details
+3. Download time entries from Harvest with a progress indicator
+4. Process and validate the data using Pydantic models
+5. Write the processed data to a CSV file (in the `output/` subdirectory by default)
+6. Optionally upload to Google Sheets if configured
+
+### Output File Locations
+
+By default, output files will be stored in the following locations:
+
+- **CSV files**: `./output/harvest_export_[prefix].csv`
+- **JSON files** (if enabled): `./output/harvest_export_[prefix].json`
+- **Log files**: Created in the current directory or specified log directory
+
+In a Docker environment, these paths would be inside the container at `/app/output/` and `/app/logs/` according to the container configuration.
+
+All output is enhanced with Rich formatting for better readability in the terminal.
 
 ---
 
