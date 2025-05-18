@@ -6,7 +6,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from dateutil import parser as date_parser
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 # Rich for better logging and output
