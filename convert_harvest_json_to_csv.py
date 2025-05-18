@@ -77,28 +77,52 @@ def download_time_entries(account_id: str, auth_token: str, user_agent: str, fro
 
 def parse_time_entries(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Convert Harvest API time entries into rows for CSV export with correct field mapping."""
-    # Use list comprehension for better performance
-    return [
-        {
-            "Date": entry.get("spent_date", ""),
-            "Client": entry.get("client", {}).get("name", ""),
-            "Project": entry.get("project", {}).get("name", ""),
-            "Project Code": entry.get("project", {}).get("code", ""),
-            "Task": entry.get("task", {}).get("name", ""),
-            "Notes": entry.get("notes") or "",
-            "Hours": entry.get("hours", 0),
-            "Billable?": "Yes" if entry.get("billable") else "No",
-            "Invoiced?": "Yes" if entry.get("is_billed") else "No",
-        }
-        for entry in data.get("time_entries", [])
-    ]
+    rows = []
+    
+    for entry in data.get("time_entries", []):
+        try:
+            # Safely extract user name parts
+            full_name = entry.get("user", {}).get("name", "")
+            name_parts = full_name.split()
+            first_name = name_parts[0] if name_parts else ""
+            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+            
+            # Safely get employee status from user_assignment
+            is_employee = entry.get("user_assignment", {}).get("is_active", False)
+            
+            row = {
+                # Field order must match the target CSV exactly
+                "Date": entry.get("spent_date", ""),
+                "Client": entry.get("client", {}).get("name", ""),
+                "Project": entry.get("project", {}).get("name", ""),
+                "Project Code": entry.get("project", {}).get("code", ""),
+                "Task": entry.get("task", {}).get("name", ""),
+                "Notes": entry.get("notes") or "",
+                "Hours": entry.get("hours", 0.0),
+                "Billable?": "Yes" if entry.get("billable") else "No",
+                "Invoiced?": "Yes" if entry.get("is_billed") else "No",
+                "First Name": first_name,
+                "Last Name": last_name,
+                "Roles": "Developer",  # Not provided by Harvest API
+                "Employee?": "Yes" if is_employee else "No",
+                "External Reference URL": entry.get("external_reference", {}).get("permalink", "") 
+                                         if entry.get("external_reference") else ""
+            }
+            rows.append(row)
+            
+        except Exception as e:
+            logging.error(f"Error processing entry {entry.get('id')}: {str(e)}")
+            continue
+            
+    return rows
 
 
 def write_csv(rows: List[Dict[str, Any]], output_file: str) -> None:
     """Write the parsed rows to a CSV file with the specified output filename."""
     fieldnames = [
         "Date", "Client", "Project", "Project Code", "Task", "Notes", "Hours",
-        "Billable?", "Invoiced?"
+        "Billable?", "Invoiced?", "First Name", "Last Name", "Roles", "Employee?",
+        "External Reference URL"
     ]
     try:
         with open(output_file, "w", newline="") as csvfile:
@@ -112,15 +136,59 @@ def write_csv(rows: List[Dict[str, Any]], output_file: str) -> None:
 
 
 def get_last_week_range() -> Tuple[str, str]:
-    """Return the previous week's Monday and Sunday date strings (YYYY-MM-DD)."""
-    today = datetime.now()
-    # Calculate days since last Monday (add 7 to go to previous week)
-    days_since_monday = today.weekday() + 7
-    # Get last week's Monday and Sunday
-    last_monday = today - timedelta(days=days_since_monday)
-    last_sunday = last_monday + timedelta(days=6)
-    # Format as YYYY-MM-DD
-    return last_monday.strftime('%Y-%m-%d'), last_sunday.strftime('%Y-%m-%d')
+    """Return the date range for the weekly report based on the current day.
+    
+    Returns:
+        Tuple[str, str]: A tuple of (start_date, end_date) in 'YYYY-MM-DD' format
+        - If today is Friday, Saturday, or Sunday: returns current week (Monday-Sunday)
+        - Otherwise: returns previous week (Monday-Sunday)
+        
+    Note:
+        - Week is considered to start on Monday and end on Sunday
+        - All dates are in the system's local timezone
+    """
+    try:
+        # Use datetime.now() with timezone awareness if available (Python 3.3+)
+        today = datetime.now()
+        
+        # Get the current weekday (Monday=0, Sunday=6)
+        current_weekday = today.weekday()
+        
+        # Calculate days to go back to most recent Monday
+        days_to_monday = current_weekday  # 0 for Monday, 1 for Tuesday, etc.
+        
+        # Determine if we're in the current week (Fri-Sun) or previous week (Mon-Thu)
+        is_current_week = current_weekday >= 4  # Friday, Saturday, or Sunday
+        
+        if is_current_week:
+            # Current week
+            start_date = today - timedelta(days=days_to_monday)
+            end_date = start_date + timedelta(days=6)
+        else:
+            # Previous week
+            start_date = today - timedelta(days=days_to_monday + 7)  # Go back to previous Monday
+            end_date = start_date + timedelta(days=6)
+        
+        # Ensure we're working with dates (not datetimes) at midnight
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        return (
+            start_date.strftime('%Y-%m-%d'),
+            end_date.strftime('%Y-%m-%d')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error calculating date range: {e}")
+        # Fallback to a safe default (previous week) if there's an error
+        fallback_date = (datetime.now() - timedelta(weeks=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        fallback_start = fallback_date - timedelta(days=fallback_date.weekday())
+        fallback_end = fallback_start + timedelta(days=6)
+        return (
+            fallback_start.strftime('%Y-%m-%d'),
+            fallback_end.strftime('%Y-%m-%d')
+        )
+
 
 def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: str):
     """Upload a CSV file to a specific Google Sheet tab, replacing its contents.
