@@ -14,19 +14,16 @@
         pkgs = nixpkgs.legacyPackages.${system};
         pythonEnv = pkgs.python3.withPackages (
           python-pkgs: with python-pkgs; [
-            python-dotenv
-            httpx
-            icalendar
-            pytz
-            python-dateutil
-            sqlalchemy
-            alembic
+            google-api-python-client
+            google-auth
+            google-auth-oauthlib
+            gspread
             pandas
-            tabulate
-            rich
             pydantic
-            typer
-            openpyxl
+            python-dateutil
+            python-dotenv
+            requests
+            rich
           ]
         );
       in

@@ -1,4 +1,5 @@
 .DS_Store
 .env
+.direnv
 output/*
 debug/*.json
