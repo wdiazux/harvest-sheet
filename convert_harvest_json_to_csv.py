@@ -162,6 +162,32 @@ class HarvestTimeEntry(BaseModel):
 class HarvestResponse(BaseModel):
     time_entries: List[HarvestTimeEntry] = []
 
+def detect_all_user_prefixes() -> list:
+    """Detect all user prefixes from environment variables.
+    
+    Searches for environment variables matching the pattern *_HARVEST_ACCOUNT_ID
+    to identify all user prefixes in the system.
+    
+    Returns:
+        list: List of user prefixes (e.g., ['WILLIAM_DIAZ_', 'JOHN_DOE_'])
+    """
+    prefixes = []
+    
+    # Look for all user-specific environment variables
+    for key in os.environ:
+        if key.endswith('_HARVEST_ACCOUNT_ID') and not key.startswith('USER_'):
+            prefix = key.replace('_HARVEST_ACCOUNT_ID', '') + '_'
+            prefixes.append(prefix)
+    
+    # Remove duplicates while preserving order
+    unique_prefixes = []
+    for prefix in prefixes:
+        if prefix not in unique_prefixes:
+            unique_prefixes.append(prefix)
+    
+    return unique_prefixes
+
+
 def load_environment() -> None:
     """Load environment variables from .env file.
     
@@ -341,9 +367,9 @@ def get_env_variable(var_name: str, default: Optional[str] = None, required: boo
     return value
 
 
-def download_time_entries(account_id: str, auth_token: str, user_agent: str, from_date: str, to_date: str) -> Dict[str, Any]:
+def download_time_entries(account_id: str, auth_token: str, user_agent: str, from_date: str, to_date: str, user_id: Optional[str] = None) -> Dict[str, Any]:
     """Fetch all Harvest time entries for the given date range, handling pagination.
-    When a HARVEST_USER_ID is set, time entries will be filtered for that specific user.
+    When user_id is provided, time entries will be filtered for that specific user.
     
     Args:
         account_id: Harvest account ID (required)
@@ -351,6 +377,7 @@ def download_time_entries(account_id: str, auth_token: str, user_agent: str, fro
         user_agent: User agent string to identify your app to Harvest API
         from_date: Start date in YYYY-MM-DD format
         to_date: End date in YYYY-MM-DD format
+        user_id: Optional Harvest user ID to filter entries by
         
     Returns:
         Dictionary containing all time entries
@@ -383,8 +410,10 @@ def download_time_entries(account_id: str, auth_token: str, user_agent: str, fro
         'per_page': 100  # Maximum allowed by Harvest API
     }
     
-    # Check if we should filter by user ID
-    user_id = get_env_variable('HARVEST_USER_ID')
+    # Add user_id filter if provided as parameter or from environment
+    if not user_id:
+        user_id = get_env_variable('HARVEST_USER_ID')
+    
     if user_id:
         params['user_id'] = user_id
         console.print(f"[blue]Filtering time entries for user ID: {user_id}[/blue]")
@@ -798,6 +827,7 @@ def main() -> None:
     parser.add_argument('--output', default=None, help='Output CSV file name (overrides env var)')
     parser.add_argument('--json', default=None, help='(Optional) Save raw JSON to this file')
     parser.add_argument('--user', help='User prefix for environment variables (e.g., WILLIAM_DIAZ_)')
+    parser.add_argument('--all-users', action='store_true', help='Process all users (default behavior now)')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
     
@@ -806,20 +836,25 @@ def main() -> None:
         logging.getLogger().setLevel(logging.DEBUG)
         console.print("[dim]Debug logging enabled[/dim]")
     
-    # If --user argument is provided, override the automatically set USER_PREFIX
+    # If --user argument is provided, process only that specific user
+    # Otherwise, find and process all users
+    user_prefixes = []
     if args.user:
         # Ensure the prefix ends with underscore
         user_prefix = args.user if args.user.endswith('_') else f"{args.user}_"
-        os.environ['USER_PREFIX'] = user_prefix
-        console.print(f"[blue]Set USER_PREFIX to {user_prefix} from command line argument[/blue]")
+        user_prefixes = [user_prefix]
+        console.print(f"[blue]Processing single user with prefix: {user_prefix}[/blue]")
+    else:
+        # Find all user prefixes in environment variables
+        user_prefixes = detect_all_user_prefixes()
+        if not user_prefixes:
+            # If no user prefixes found, try with empty prefix (for backward compatibility)
+            user_prefixes = ['']
+            console.print("[yellow]No user prefixes found. Attempting to process with default settings.[/yellow]")
+        else:
+            console.print(f"[green]Found {len(user_prefixes)} users to process: {', '.join(user_prefixes)}[/green]")
     
-    # Get the current user prefix for logging
-    prefix = os.environ.get('USER_PREFIX', '')
-    user_email = get_env_variable('HARVEST_USER_AGENT', 'unknown user')
-    logging.info(f"Processing time entries for: {user_email} (Prefix: {prefix or 'none'})")
-    
-
-    # Determine date range
+    # Determine common date range for all users
     # Priority:    # Date range from environment or command-line arguments
     env_from = get_env_variable('FROM_DATE')
     env_to = get_env_variable('TO_DATE')
@@ -837,115 +872,154 @@ def main() -> None:
         console.print("[yellow]No date range provided, using last week[/yellow]")
         from_date, to_date = get_last_week_range()
     
-    # Determine output file path
-    if args.output:
-        output_file = args.output
-    else:
-        # If no output file specified, use default naming with user identifiers
-        prefix = get_env_variable('USER_PREFIX', 'harvest').lower().replace('_', '') 
-        output_file = get_absolute_path(f"output/harvest_export_{prefix}.csv")
-    
-    console.print(f"[blue]Using output file: {output_file}[/blue]")
-    
     # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(output_file) or '.'
+    output_dir = get_absolute_path("output")
     os.makedirs(output_dir, exist_ok=True)
     
-    # Optionally prepare JSON output path
-    json_file = None
-    enable_raw_json = get_env_variable('ENABLE_RAW_JSON', '0').lower() in ('1', 'true', 'yes')
-    
-    if args.json or enable_raw_json:
-        json_file = args.json or output_file.replace('.csv', '.json')
-        if json_file == output_file:  # No .csv extension to replace
-            json_file = f"{output_file}.json"
-        console.print(f"[dim]Will save raw JSON to: {json_file}[/dim]")
-
-    # Step 1: Get Harvest API credentials
-    try:
-        with console.status("[bold blue]Setting up Harvest API authentication...") as status:
-            account_id = get_env_variable('HARVEST_ACCOUNT_ID', required=True)
-            auth_token = get_env_variable('HARVEST_AUTH_TOKEN', required=True)
-            user_agent = get_env_variable('HARVEST_USER_AGENT', 'Harvest API Script')
-    except RuntimeError as e:
-        console.print(f"[bold red]Configuration error: {e}[/bold red]")
-        console.print("[yellow]Make sure to set the required environment variables with or without a user prefix[/yellow]")
-        return
-
-    # Step 2: Download time entries
-    try:
-        data = download_time_entries(account_id, auth_token, user_agent, from_date, to_date)
-    except Exception as e:
-        console.print(f"[bold red]Failed to download time entries: {e}[/bold red]")
-        console.print_exception()
-        return
-
-    # Step 3: Optionally save raw JSON
-    if json_file and (enable_raw_json or args.json):
-        try:
-            # Ensure the directory exists
-            json_dir = os.path.dirname(json_file) or output_dir
-            os.makedirs(json_dir, exist_ok=True)
-            
-            with console.status(f"[bold blue]Saving raw JSON to {json_file}...") as status:
-                with open(json_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2)
-                    
-            console.print(f"[green]Saved raw JSON to {json_file}[/green]")
-        except (IOError, OSError) as e:
-            console.print(f"[yellow]Warning: Error saving JSON to {json_file}: {e}[/yellow]")
-            # Continue even if JSON save fails
-
-    # Step 4: Process data and write CSV
-    try:
-        # Convert the JSON data to a pandas DataFrame
-        df = parse_time_entries(data)
+    # Process each user
+    for user_prefix in user_prefixes:
+        # Set the current user prefix for the environment
+        os.environ['USER_PREFIX'] = user_prefix
         
-        # Write the DataFrame to CSV file
-        with console.status(f"[bold blue]Writing CSV to {output_file}...") as status:
-            write_csv(df, output_file)
-            
-        if not df.empty:
-            console.print(f"[green]Successfully wrote {len(df)} rows to {output_file}[/green]")
+        # Get the current user info for logging
+        user_email = get_env_variable('HARVEST_USER_AGENT', 'unknown user')
+        console.print(f"\n[bold blue]{'='*80}[/bold blue]")
+        console.print(f"[bold blue]Processing time entries for: {user_email} (Prefix: {user_prefix or 'none'})[/bold blue]")
+        console.print(f"[bold blue]{'='*80}[/bold blue]")
+        logging.info(f"Processing time entries for: {user_email} (Prefix: {user_prefix or 'none'})")
+        
+        # Determine output file path for this user
+        if args.output and len(user_prefixes) == 1:
+            # Only use explicitly specified output file if processing a single user
+            output_file = args.output
         else:
-            console.print("[yellow]No time entries found for the specified period[/yellow]")
-    except Exception as e:
-        console.print(f"[bold red]Failed to process or write CSV: {e}[/bold red]")
-        console.print_exception()
-        return
-
-    # Step 5: Google Sheets upload (optional)
-    spreadsheet_id = get_env_variable('GOOGLE_SHEET_ID')
-    sheet_name = get_env_variable('GOOGLE_SHEET_TAB_NAME')
-    upload_flag = get_env_variable('UPLOAD_TO_GOOGLE_SHEET', '0')
-    
-    # Determine if upload is enabled
-    upload_enabled = upload_flag.lower() in ('1', 'true', 'yes')
-    sheets_configured = bool(spreadsheet_id and sheet_name)
-    
-    if upload_enabled:
-        console.print("[blue]Google Sheets upload: enabled[/blue]")
+            # Generate user-specific filename
+            prefix = user_prefix.lower().replace('_', '') if user_prefix else 'default'
+            output_file = get_absolute_path(f"output/harvest_export_{prefix}.csv")
         
-        if not sheets_configured:
-            console.print("[bold red]Error: Missing Google Sheet ID or Tab Name. Check your environment variables.[/bold red]")
-            return
+        console.print(f"[blue]Using output file: {output_file}[/blue]")
         
-        if not gspread or not service_account:
-            console.print("[bold red]Error: Google Sheets API dependencies not installed.[/bold red]")
-            console.print("[dim]Install with: pip install gspread google-auth[/dim]")
-            return
-            
+        # Optionally prepare JSON output path for this user
+        json_file = None
+        enable_raw_json = get_env_variable('ENABLE_RAW_JSON', '0').lower() in ('1', 'true', 'yes')
+        
+        if args.json or enable_raw_json:
+            if args.json and len(user_prefixes) == 1:
+                # Only use explicitly specified JSON file if processing a single user
+                json_file = args.json
+            else:
+                # Generate user-specific JSON filename
+                json_file = output_file.replace('.csv', '.json')
+                if json_file == output_file:  # No .csv extension to replace
+                    json_file = f"{output_file}.json"
+                    
+            console.print(f"[dim]Will save raw JSON to: {json_file}[/dim]")
+    
+        # Step 1: Get Harvest API credentials specific to this user
         try:
-            # Upload CSV to Google Sheets
-            upload_csv_to_google_sheet(output_file, spreadsheet_id, sheet_name)
-            console.print(f"[green]Successfully uploaded to Google Sheet ID: {spreadsheet_id}, Tab: {sheet_name}[/green]")
+            with console.status("[bold blue]Setting up Harvest API authentication...") as status:
+                # Force refresh of the USER_PREFIX in the global scope to ensure we get the right variables
+                global USER_PREFIX
+                USER_PREFIX = user_prefix
+                
+                # Get user-specific Harvest credentials
+                account_id = get_env_variable('HARVEST_ACCOUNT_ID', required=True)
+                auth_token = get_env_variable('HARVEST_AUTH_TOKEN', required=True)
+                user_agent = get_env_variable('HARVEST_USER_AGENT', 'Harvest API Script')
+                user_id = get_env_variable('HARVEST_USER_ID')
+                
+                # Log the credentials being used (without showing sensitive information)
+                console.print(f"[blue]Using credentials for user prefix: {user_prefix}[/blue]")
+                logging.debug(f"Account ID: {account_id}")
+                logging.debug(f"Auth Token: {'*' * 8}...{'*' * 8}")
+                logging.debug(f"User Agent: {user_agent}")
+                logging.debug(f"User ID: {user_id}")
+        except RuntimeError as e:
+            console.print(f"[bold red]Configuration error for user {user_prefix}: {e}[/bold red]")
+            console.print("[yellow]Skipping this user and continuing with others[/yellow]")
+            continue
+    
+        # Step 2: Download time entries for this user
+        try:
+            data = download_time_entries(account_id, auth_token, user_agent, from_date, to_date, user_id)
         except Exception as e:
-            console.print(f"[bold red]Failed to upload to Google Sheets: {e}[/bold red]")
+            console.print(f"[bold red]Failed to download time entries for user {user_prefix}: {e}[/bold red]")
             console.print_exception()
-    else:
-        console.print("[dim]Google Sheets upload: disabled (set UPLOAD_TO_GOOGLE_SHEET=1 to enable)[/dim]")
+            console.print("[yellow]Skipping this user and continuing with others[/yellow]")
+            continue
+    
+        # Step 3: Optionally save raw JSON for this user
+        if json_file and (enable_raw_json or args.json):
+            try:
+                # Ensure the directory exists
+                json_dir = os.path.dirname(json_file) or output_dir
+                os.makedirs(json_dir, exist_ok=True)
+                
+                with console.status(f"[bold blue]Saving raw JSON to {json_file}...") as status:
+                    with open(json_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2)
+                        
+                console.print(f"[green]Saved raw JSON to {json_file}[/green]")
+            except (IOError, OSError) as e:
+                console.print(f"[yellow]Warning: Error saving JSON to {json_file}: {e}[/yellow]")
+                # Continue even if JSON save fails
+    
+        # Step 4: Process data and write CSV for this user
+        try:
+            # Convert the JSON data to a pandas DataFrame
+            df = parse_time_entries(data)
+            
+            # Write the DataFrame to CSV file
+            with console.status(f"[bold blue]Writing CSV to {output_file}...") as status:
+                write_csv(df, output_file)
+                
+            if not df.empty:
+                console.print(f"[green]Successfully wrote {len(df)} rows to {output_file}[/green]")
+            else:
+                console.print("[yellow]No time entries found for the specified period[/yellow]")
+        except Exception as e:
+            console.print(f"[bold red]Failed to process or write CSV for user {user_prefix}: {e}[/bold red]")
+            console.print_exception()
+            console.print("[yellow]Skipping Google Sheets upload for this user and continuing[/yellow]")
+            continue
+    
+        # Step 5: Google Sheets upload (optional) for this user
+        spreadsheet_id = get_env_variable('GOOGLE_SHEET_ID')
+        sheet_name = get_env_variable('GOOGLE_SHEET_TAB_NAME')
+        upload_flag = get_env_variable('UPLOAD_TO_GOOGLE_SHEET', '0')
+        
+        # Determine if upload is enabled
+        upload_enabled = upload_flag.lower() in ('1', 'true', 'yes')
+        sheets_configured = bool(spreadsheet_id and sheet_name)
+        
+        if upload_enabled:
+            console.print("[blue]Google Sheets upload: enabled[/blue]")
+            
+            if not sheets_configured:
+                console.print("[yellow]Warning: Missing Google Sheet ID or Tab Name for user {user_prefix}.[/yellow]")
+                console.print("[yellow]Skipping Google Sheets upload for this user and continuing[/yellow]")
+                continue
+            
+            if not gspread or not service_account:
+                console.print("[bold red]Error: Google Sheets API dependencies not installed.[/bold red]")
+                console.print("[dim]Install with: pip install gspread google-auth[/dim]")
+                continue
+                
+            try:
+                # Upload CSV to Google Sheets
+                upload_csv_to_google_sheet(output_file, spreadsheet_id, sheet_name)
+                console.print(f"[green]Successfully uploaded to Google Sheet ID: {spreadsheet_id}, Tab: {sheet_name}[/green]")
+            except Exception as e:
+                console.print(f"[bold red]Failed to upload to Google Sheets for user {user_prefix}: {e}[/bold red]")
+                console.print_exception()
+        else:
+            console.print("[dim]Google Sheets upload: disabled (set UPLOAD_TO_GOOGLE_SHEET=1 to enable)[/dim]")
+    
+    # Final summary
+    console.print(f"\n[bold green]Completed processing for {len(user_prefixes)} user(s)[/bold green]")
 
 
 if __name__ == "__main__":
-    # Usage: python convert_harvest_json_to_csv.py [--from-date YYYY-MM-DD] [--to-date YYYY-MM-DD] [--output FILE] [--json FILE]
+    # Usage: python convert_harvest_json_to_csv.py [--from-date YYYY-MM-DD] [--to-date YYYY-MM-DD] [--output FILE] [--json FILE] [--user USER_PREFIX] [--all-users]
+    # Note: Processing all users is now the default behavior unless --user is specified
     main()
