@@ -36,14 +36,19 @@ error() {
 # Log script start
 log "INFO" "Starting Harvest sync process"
 
-# Load environment variables
+# Load environment variables (if available, but not required)
 ENV_FILE="/app/.env"
 if [ -f "${ENV_FILE}" ]; then
     # shellcheck source=/dev/null
     source "${ENV_FILE}"
     log "INFO" "Loaded environment variables from ${ENV_FILE}"
 else
-    error "Error: ${ENV_FILE} not found in container"
+    log "INFO" "No .env file found at ${ENV_FILE}, using Docker environment variables instead"
+fi
+
+# Verify required environment variables are set
+if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
+    error "No Harvest account IDs found in environment variables. Make sure Docker environment variables are properly configured."
 fi
 
 # Function to process a single user's data
