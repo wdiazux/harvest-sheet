@@ -6,14 +6,13 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple
 
 # Rich for better logging and output
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.progress import Progress, track
+from rich.progress import Progress
 from rich.panel import Panel
-from rich import print as rprint
 
 # Pydantic for data validation
 from pydantic import BaseModel, Field, field_validator
