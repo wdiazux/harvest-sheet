@@ -155,14 +155,12 @@ The application uses two types of environment variables:
 
 #### 1. User-Specific Variables (with prefix)
 
-Each user's variables are prefixed with their name (e.g., `FIRSTNAME_LASTNAME_`). The following variables are supported for each user:
-
-- `[PREFIX]_HARVEST_ACCOUNT_ID`: Harvest account ID for this user
-- `[PREFIX]_HARVEST_AUTH_TOKEN`: Personal access token
-- `[PREFIX]_HARVEST_USER_AGENT`: User agent (usually your email)
-- `[PREFIX]_HARVEST_USER_ID`: (Optional) Specific user ID to filter time entries
-- `[PREFIX]_GOOGLE_SHEET_ID`: Google Sheet ID for upload
-- `[PREFIX]_GOOGLE_SHEET_TAB_NAME`: Tab name within the Google Sheet
+- `FIRSTNAME_LASTNAME_HARVEST_ACCOUNT_ID`: Harvest account ID
+- `FIRSTNAME_LASTNAME_HARVEST_AUTH_TOKEN`: Authentication token
+- `FIRSTNAME_LASTNAME_HARVEST_USER_AGENT`: User agent (usually your email)
+- `FIRSTNAME_LASTNAME_HARVEST_USER_ID`: (Optional) User ID for filtering entries by user
+- `FIRSTNAME_LASTNAME_GOOGLE_SHEET_ID`: Google Sheet ID for this user
+- `FIRSTNAME_LASTNAME_GOOGLE_SHEET_TAB_NAME`: Tab name in the Google Sheet
 
 #### 2. Global Variables
 
@@ -171,12 +169,6 @@ Each user's variables are prefixed with their name (e.g., `FIRSTNAME_LASTNAME_`)
 - `GOOGLE_SA_PRIVATE_KEY`: Private key (replace newlines with `\n`)
 - `GOOGLE_SA_CLIENT_EMAIL`: Service account email
 - `GOOGLE_SA_CLIENT_ID`: Service account client ID
-- `GOOGLE_SA_UNIVERSE_DOMAIN`: (Optional) API universe domain (default: googleapis.com)
-- `GOOGLE_SHEET_ID`: Default Google Sheet ID (if not using user-specific)
-- `GOOGLE_SHEET_TAB_NAME`: Default tab name (if not using user-specific)
-
-#### Additional Configuration Variables
-
 - `UPLOAD_TO_GOOGLE_SHEET`: Enable/disable Google Sheets upload (1=enable, 0=disable)
 - `ENABLE_RAW_JSON`: Enable/disable raw JSON export (1=enable, 0=disable)
 - `INCLUDE_ADVANCED_FIELDS`: Include additional fields from Harvest API in CSV export (1=enable, 0=disable)
@@ -216,14 +208,21 @@ When the `INCLUDE_ADVANCED_FIELDS` option is enabled, the following fields are a
 - **Created At/Updated At**: Timestamps for when the entry was created and last updated
 - **Cost Rate**: The cost rate applied to the time entry (if available)
 
-### Enabling Advanced Fields
+### Enabling Raw JSON and Advanced Fields
 
-To include these fields in your CSV exports:
+#### Raw JSON Export
+To save the raw JSON response from the Harvest API:
+
+1. Set `ENABLE_RAW_JSON=1` in your `.env` file, or
+2. Use the `--json` command-line argument when running the script
+
+#### Advanced Fields
+To include additional fields in your CSV exports:
 
 1. Set `INCLUDE_ADVANCED_FIELDS=1` in your `.env` file, or
 2. Add `INCLUDE_ADVANCED_FIELDS=1` to your environment variables
 
-In a multi-user setup, this setting applies globally to all users processed in that run.
+In a multi-user setup, these settings apply globally to all users processed in that run.
 
 ## Running Locally Without Docker
 
@@ -265,7 +264,7 @@ python convert_harvest_json_to_csv.py --debug
 # Specify a user prefix (for multi-user setups)
 python convert_harvest_json_to_csv.py --user JOHN_DOE
 
-# Save raw JSON output
+# Save raw JSON output (or set ENABLE_RAW_JSON=1 in your .env file)
 python convert_harvest_json_to_csv.py --json harvest_data.json
 ```
 
@@ -297,7 +296,7 @@ By default, output files will be stored in the following locations:
 - **JSON files** (if enabled): `./output/harvest_export_[prefix].json`
 - **Log files**: Created in the current directory or specified log directory
 
-In a Docker environment, these paths would be inside the container at `/app/output/` and `/app/logs/` according to the container configuration.
+In a Docker environment, these paths would be inside the container at `/app/output/` and `/app/logs/` according to the container configuration. All file paths in the scripts use absolute paths relative to `/app`.
 
 All output is enhanced with Rich formatting for better readability in the terminal.
 
@@ -317,11 +316,11 @@ You will need the following for Harvest API access:
 3. Click **Create New Personal Access Token**.
 4. Copy your **Account ID** and **Personal Access Token**.
 5. Set your **User Agent** to your email address or app name (e.g., `user@email.com`).
-6. Add these values to your `.env` file:
+6. Add these values to your `.env` file with your prefix (replace FIRSTNAME_LASTNAME with your actual name):
    ```env
-   HARVEST_ACCOUNT_ID=your_account_id
-   HARVEST_AUTH_TOKEN=your_personal_access_token
-   HARVEST_USER_AGENT=your_email_or_app
+   FIRSTNAME_LASTNAME_HARVEST_ACCOUNT_ID=your_account_id
+   FIRSTNAME_LASTNAME_HARVEST_AUTH_TOKEN=your_personal_access_token
+   FIRSTNAME_LASTNAME_HARVEST_USER_AGENT=your_email_or_app
    ```
 
 **Official Docs:** [Harvest API Authentication](https://help.getharvest.com/api-v2/authentication-api/authentication/authentication/)
