@@ -51,16 +51,6 @@ if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
     error "No Harvest account IDs found in environment variables. Make sure Docker environment variables are properly configured."
 fi
 
-# Function to get date range for processing
-get_date_range() {
-    # Get the current date in YYYY-MM-DD format
-    local today=$(date +%Y-%m-%d)
-    # Get the date 7 days ago in YYYY-MM-DD format
-    local one_week_ago=$(date -v-7d +%Y-%m-%d)
-    
-    echo "${one_week_ago} ${today}"
-}
-
 # Main execution
 log "INFO" "Starting Harvest data processing for all users"
 
@@ -68,14 +58,11 @@ log "INFO" "Starting Harvest data processing for all users"
 user_count=$(env | grep -E '_HARVEST_ACCOUNT_ID=' | wc -l)
 log "INFO" "Found ${user_count} user configurations in environment variables"
 
-# Get date range for processing
-read -r from_date to_date <<< "$(get_date_range)"
-log "INFO" "Fetching time entries from ${from_date} to ${to_date} for all users"
+# Run the script once for all users
+# Python script will automatically calculate the appropriate date range
+log "INFO" "Running Python script with automatic date range calculation"
 
-# Run the script once for all users (no --user flag)
 if python3 "${SCRIPT_DIR}/convert_harvest_json_to_csv.py" \
-    --from-date "${from_date}" \
-    --to-date "${to_date}" \
     --all-users 2>> "${ERROR_LOG_FILE}"; then
     
     log "INFO" "Successfully processed all users"
