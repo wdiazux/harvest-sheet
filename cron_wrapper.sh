@@ -51,73 +51,45 @@ if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
     error "No Harvest account IDs found in environment variables. Make sure Docker environment variables are properly configured."
 fi
 
-# Function to process a single user's data
-process_user() {
-    local user_prefix=$1
-    log "INFO" "Processing user with prefix: ${user_prefix}"
-    
-    # Export the user prefix for the Python script
-    export USER_PREFIX="${user_prefix}"
-    
+# Function to get date range for processing
+get_date_range() {
     # Get the current date in YYYY-MM-DD format
     local today=$(date +%Y-%m-%d)
     # Get the date 7 days ago in YYYY-MM-DD format
     local one_week_ago=$(date -v-7d +%Y-%m-%d)
     
-    log "INFO" "Fetching time entries from ${one_week_ago} to ${today}"
-    
-    # Run the script with the date range
-    if ! python3 "${SCRIPT_DIR}/convert_harvest_json_to_csv.py" \
-        --from-date "${one_week_ago}" \
-        --to-date "${today}" \
-        --user "${user_prefix}" 2>> "${ERROR_LOG_FILE}"; then
-        log "ERROR" "Failed to process user ${user_prefix}"
-        return 1
-    fi
-    
-    log "INFO" "Successfully processed user: ${user_prefix}"
-    return 0
+    echo "${one_week_ago} ${today}"
 }
 
 # Main execution
-log "INFO" "Starting user processing"
+log "INFO" "Starting Harvest data processing for all users"
 
-# Process all users with HARVEST_ACCOUNT_ID in their environment variables
-# This finds all environment variables that end with _HARVEST_ACCOUNT_ID
-user_count=0
-success_count=0
+# Count how many users have HARVEST_ACCOUNT_ID environment variables
+user_count=$(env | grep -E '_HARVEST_ACCOUNT_ID=' | wc -l)
+log "INFO" "Found ${user_count} user configurations in environment variables"
 
-# Get all environment variables that end with _HARVEST_ACCOUNT_ID
-while IFS= read -r var_name; do
-    # Extract the prefix (everything before _HARVEST_ACCOUNT_ID)
-    user_prefix="${var_name%_HARVEST_ACCOUNT_ID}"
+# Get date range for processing
+read -r from_date to_date <<< "$(get_date_range)"
+log "INFO" "Fetching time entries from ${from_date} to ${to_date} for all users"
+
+# Run the script once for all users (no --user flag)
+if python3 "${SCRIPT_DIR}/convert_harvest_json_to_csv.py" \
+    --from-date "${from_date}" \
+    --to-date "${to_date}" \
+    --all-users 2>> "${ERROR_LOG_FILE}"; then
     
-    # Skip if no prefix found
-    [ -z "${user_prefix}" ] && continue
-    
-    log "INFO" "Found user configuration: ${user_prefix}"
-    
-    # Process this user
-    if process_user "${user_prefix}"; then
-        ((success_count++))
-    fi
-    
-    ((user_count++))
-    
-    # Add a small delay between users to avoid rate limiting
-    sleep 2
-    
-done < <(env | grep -E '_HARVEST_ACCOUNT_ID=' | cut -d= -f1)
+    log "INFO" "Successfully processed all users"
+    success=true
+else
+    log "ERROR" "Failed to process all users. Check ${ERROR_LOG_FILE} for details."
+    success=false
+fi
 
 # Log summary
-log "INFO" "Processed ${success_count} of ${user_count} users successfully"
-
-if [ ${success_count} -eq 0 ] && [ ${user_count} -gt 0 ]; then
-    error "Failed to process any users. Check ${ERROR_LOG_FILE} for details."
-elif [ ${success_count} -lt ${user_count} ]; then
-    log "WARNING" "Some users failed to process. Check ${ERROR_LOG_FILE} for details."
-else
+if [ "${success}" = true ]; then
     log "INFO" "All users processed successfully"
+else
+    error "Failed to process users. Check ${ERROR_LOG_FILE} for details."
 fi
 
 log "INFO" "Harvest sync completed at $(date)"

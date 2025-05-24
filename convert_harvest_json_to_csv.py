@@ -494,7 +494,7 @@ def parse_time_entries(data: Dict[str, Any]) -> pd.DataFrame:
     
     try:
         # Use Pydantic to parse and validate the Harvest data
-        harvest_data = HarvestResponse.parse_obj(data)
+        harvest_data = HarvestResponse.model_validate(data)
         
         if not harvest_data.time_entries:
             console.print("[yellow]Time entries list is empty[/yellow]")
