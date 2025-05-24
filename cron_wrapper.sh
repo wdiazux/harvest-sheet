@@ -29,7 +29,7 @@ log() {
 # Function to handle errors
 error() {
     log "ERROR" "$1"
-    log "ERROR" "$1" >> "${ERROR_LOG_FILE}"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >> "${ERROR_LOG_FILE}"
     exit 1
 }
 
