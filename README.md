@@ -99,16 +99,19 @@ The Docker container comes with cron pre-configured to run the script on a regul
 
 ```
 # Run the Harvest script at 6:00 AM and 6:00 PM every day
-0 6,18 * * * cd /app && /app/cron_wrapper.sh >> /app/logs/cron.log 2>> /app/logs/cron.error.log
+0 6,18 * * * /app/cron_wrapper.sh >> /app/logs/cron.log 2>> /app/logs/cron.error.log
+
+# Run the Harvest script at 12:00 AM every Monday
+0 0 * * 1 /app/cron_wrapper.sh >> /app/logs/cron.log 2>> /app/logs/cron.error.log
 ```
 
-This configuration runs the script twice daily at 6:00 AM and 6:00 PM.
+This configuration runs the script twice daily at 6:00 AM and 6:00 PM, and once weekly at midnight on Mondays.
 
 All jobs use the `/app/cron_wrapper.sh` script which:
 1. Sets up logging with timestamps
-2. Loads environment variables from `/app/.env`
-3. Automatically detects all user prefixes in the environment
-4. Processes each user's data with the appropriate environment variables
+2. Loads environment variables from Docker (uses `/app/.env` as a fallback if available)
+3. Counts all user prefixes in the environment
+4. Runs the Python script once with the `--all-users` flag to process all users in a single execution
 5. Generates detailed logs in the `/app/logs/` directory
 
 The wrapper script uses Rich for enhanced terminal output and provides detailed progress information during execution.
@@ -130,9 +133,10 @@ The application supports multiple users with different Harvest accounts and Goog
 #### How Multi-User Support Works:
 
 1. Each user's variables are prefixed with their name (e.g., `FIRSTNAME_LASTNAME_HARVEST_ACCOUNT_ID`)
-2. The `cron_wrapper.sh` script automatically detects all users with Harvest credentials defined
-3. For each user, it sets the `USER_PREFIX` environment variable and runs the Python script
-4. The Python script uses the prefix to load the correct credentials for each user
+2. The `cron_wrapper.sh` script verifies that at least one user has Harvest credentials defined
+3. The Python script is run once with the `--all-users` flag
+4. The Python script automatically detects all user prefixes in the environment
+5. For each detected user, the script uses the prefix to load the correct credentials
 
 #### To Add a New User:
 
