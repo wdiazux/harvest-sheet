@@ -37,8 +37,8 @@ done
 buildah copy $ctr .env.example /app/ 2>/dev/null || echo ".env.example not found, skipping."
 
 # 5. Create required directories and files
-buildah run $ctr -- mkdir -p /app/output
-buildah run $ctr -- touch /app/cron.log /app/cron.error.log
+buildah run $ctr -- mkdir -p /app/output /app/logs
+buildah run $ctr -- touch /app/logs/cron.log /app/logs/cron.error.log
 
 # 6. Install Python dependencies in a single layer
 echo "Installing Python dependencies..."
@@ -65,7 +65,7 @@ else
 fi
 
 # 9. Configure container metadata
-buildah config --cmd '["/bin/sh", "-c", "cron && tail -F /app/cron.log"]' $ctr
+buildah config --cmd '["/bin/sh", "-c", "cron && tail -F /app/logs/cron.log"]' $ctr
 buildah config --author "Harvest Sheet Maintainer" $ctr
 buildah config --label "description=Harvest Sheet data processor with scheduled jobs" $ctr
 
