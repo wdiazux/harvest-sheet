@@ -49,8 +49,21 @@ fi
 # If .env doesn't exist, create it from current environment variables
 if [ ! -f "${ENV_FILE}" ]; then
     log "INFO" "Creating .env file from current environment variables"
-    # Export all environment variables to a file that can be sourced by cron jobs
-    printenv | grep -v "^_=" | sed 's/^/export /g' > "${ENV_FILE}"
+    
+    # Create a clean .env file
+    touch "${ENV_FILE}"
+    
+    # Process each environment variable safely, preserving quotes and special characters
+    while IFS='=' read -r name value; do
+        # Skip internal variables
+        if [[ $name == "_"* ]] || [[ $name == "SHLVL" ]] || [[ $name == "PWD" ]] || [[ $name == "OLDPWD" ]]; then
+            continue
+        fi
+        
+        # Properly quote the value to preserve spaces and special characters
+        printf "export %s=%q\n" "$name" "$value" >> "${ENV_FILE}"
+    done < <(env)
+    
     log "INFO" "Created .env file at ${ENV_FILE}"
     
     # Source it again now that we've created it
@@ -68,7 +81,23 @@ if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
         
         # Save to .env file for future use and also export to current process
         log "INFO" "Updating .env file with container process environment"
-        echo "${CONTAINER_ENV}" | sed 's/^/export /g' > "${ENV_FILE}"
+        
+        # Create a clean .env file
+        touch "${ENV_FILE}.new"
+        
+        # Process each environment variable safely, preserving quotes and special characters
+        while IFS='=' read -r name value; do
+            # Skip internal variables
+            if [[ $name == "_"* ]] || [[ $name == "SHLVL" ]] || [[ $name == "PWD" ]] || [[ $name == "OLDPWD" ]]; then
+                continue
+            fi
+            
+            # Properly quote the value to preserve spaces and special characters
+            printf "export %s=%q\n" "$name" "$value" >> "${ENV_FILE}.new"
+        done <<< "${CONTAINER_ENV}"
+        
+        # Replace the old file with the new one
+        mv "${ENV_FILE}.new" "${ENV_FILE}"
         
         # Export to current process
         while IFS='=' read -r key value; do
