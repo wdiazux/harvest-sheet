@@ -46,21 +46,36 @@ else
     log "INFO" "No .env file found at ${ENV_FILE}, using container environment variables instead"
 fi
 
+# If .env doesn't exist, create it from current environment variables
+if [ ! -f "${ENV_FILE}" ]; then
+    log "INFO" "Creating .env file from current environment variables"
+    # Export all environment variables to a file that can be sourced by cron jobs
+    printenv | grep -v "^_=" | sed 's/^/export /g' > "${ENV_FILE}"
+    log "INFO" "Created .env file at ${ENV_FILE}"
+    
+    # Source it again now that we've created it
+    # shellcheck source=/dev/null
+    source "${ENV_FILE}"
+fi
+
 # Verify required environment variables are set
-# When running in cron, we need to capture environment from the container
 if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
-    # Try to get environment variables from the container process
+    # Try alternative methods to get environment variables
     if [ -f "/proc/1/environ" ]; then
         log "INFO" "Attempting to load environment variables from container process"
         # Read environment variables from container's process
-        CONTAINER_ENV=$(tr '\0' '\n' < /proc/1/environ)
+        CONTAINER_ENV=$(tr '\0' '\n' < /proc/1/environ | grep -v "^_=")
         
-        # Export all environment variables to current process
+        # Save to .env file for future use and also export to current process
+        log "INFO" "Updating .env file with container process environment"
+        echo "${CONTAINER_ENV}" | sed 's/^/export /g' > "${ENV_FILE}"
+        
+        # Export to current process
         while IFS='=' read -r key value; do
             if [ -n "$key" ]; then
                 export "$key=$value"
             fi
-        done <<< "$CONTAINER_ENV"
+        done <<< "${CONTAINER_ENV}"
         
         # Check again after loading container environment
         if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
@@ -72,6 +87,10 @@ if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
         error "No Harvest account IDs found in environment variables. Make sure container environment variables are properly configured."
     fi
 fi
+
+# Log the number of Harvest account IDs found
+HARVEST_ACCOUNT_IDS=$(env | grep -E '_HARVEST_ACCOUNT_ID=' | wc -l)
+log "INFO" "Found ${HARVEST_ACCOUNT_IDS} Harvest account IDs in environment variables"
 
 # Main execution
 log "INFO" "Starting Harvest data processing for all users"
