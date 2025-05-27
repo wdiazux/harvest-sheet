@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to run the Harvest script for multiple users in a Docker container
+# Script to run the Harvest script for multiple users in a container
 # This script runs inside a container where the working directory is /app
 
 # Exit on error
@@ -43,12 +43,34 @@ if [ -f "${ENV_FILE}" ]; then
     source "${ENV_FILE}"
     log "INFO" "Loaded environment variables from ${ENV_FILE}"
 else
-    log "INFO" "No .env file found at ${ENV_FILE}, using Docker environment variables instead"
+    log "INFO" "No .env file found at ${ENV_FILE}, using container environment variables instead"
 fi
 
 # Verify required environment variables are set
+# When running in cron, we need to capture environment from the container
 if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
-    error "No Harvest account IDs found in environment variables. Make sure Docker environment variables are properly configured."
+    # Try to get environment variables from the container process
+    if [ -f "/proc/1/environ" ]; then
+        log "INFO" "Attempting to load environment variables from container process"
+        # Read environment variables from container's process
+        CONTAINER_ENV=$(tr '\0' '\n' < /proc/1/environ)
+        
+        # Export all environment variables to current process
+        while IFS='=' read -r key value; do
+            if [ -n "$key" ]; then
+                export "$key=$value"
+            fi
+        done <<< "$CONTAINER_ENV"
+        
+        # Check again after loading container environment
+        if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
+            error "No Harvest account IDs found in environment variables. Make sure container environment variables are properly configured."
+        else
+            log "INFO" "Successfully loaded environment variables from container process"
+        fi
+    else
+        error "No Harvest account IDs found in environment variables. Make sure container environment variables are properly configured."
+    fi
 fi
 
 # Main execution
