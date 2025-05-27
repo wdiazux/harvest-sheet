@@ -36,77 +36,76 @@ error() {
 # Log script start
 log "INFO" "Starting Harvest sync process"
 
-# Load environment variables (if available, but not required)
-ENV_FILE="/app/.env"
-if [ -f "${ENV_FILE}" ]; then
-    # shellcheck source=/dev/null
-    source "${ENV_FILE}"
-    log "INFO" "Loaded environment variables from ${ENV_FILE}"
-else
-    log "INFO" "No .env file found at ${ENV_FILE}, using container environment variables instead"
-fi
-
-# If .env doesn't exist, create it from current environment variables
-if [ ! -f "${ENV_FILE}" ]; then
-    log "INFO" "Creating .env file from current environment variables"
+# Function to safely write environment variables to a file
+save_env_vars() {
+    local target_file=$1
+    local source=${2:-"env"}
+    local temp_file="${target_file}.tmp"
     
-    # Create a clean .env file
-    touch "${ENV_FILE}"
+    # Create a clean temp file
+    touch "${temp_file}"
     
-    # Process each environment variable safely, preserving quotes and special characters
-    while IFS='=' read -r name value; do
-        # Skip internal variables
-        if [[ $name == "_"* ]] || [[ $name == "SHLVL" ]] || [[ $name == "PWD" ]] || [[ $name == "OLDPWD" ]]; then
-            continue
-        fi
-        
-        # Properly quote the value to preserve spaces and special characters
-        printf "export %s=%q\n" "$name" "$value" >> "${ENV_FILE}"
-    done < <(env)
-    
-    log "INFO" "Created .env file at ${ENV_FILE}"
-    
-    # Source it again now that we've created it
-    # shellcheck source=/dev/null
-    source "${ENV_FILE}"
-fi
-
-# Verify required environment variables are set
-if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
-    # Try alternative methods to get environment variables
-    if [ -f "/proc/1/environ" ]; then
-        log "INFO" "Attempting to load environment variables from container process"
-        # Read environment variables from container's process
-        CONTAINER_ENV=$(tr '\0' '\n' < /proc/1/environ | grep -v "^_=")
-        
-        # Save to .env file for future use and also export to current process
-        log "INFO" "Updating .env file with container process environment"
-        
-        # Create a clean .env file
-        touch "${ENV_FILE}.new"
-        
-        # Process each environment variable safely, preserving quotes and special characters
+    # Process each environment variable safely with proper quoting
+    if [ "$source" = "env" ]; then
+        # From current environment
         while IFS='=' read -r name value; do
             # Skip internal variables
             if [[ $name == "_"* ]] || [[ $name == "SHLVL" ]] || [[ $name == "PWD" ]] || [[ $name == "OLDPWD" ]]; then
                 continue
             fi
-            
             # Properly quote the value to preserve spaces and special characters
-            printf "export %s=%q\n" "$name" "$value" >> "${ENV_FILE}.new"
-        done <<< "${CONTAINER_ENV}"
+            printf "export %s=%q\n" "$name" "$value" >> "${temp_file}"
+        done < <(env)
+    else
+        # From container environment
+        while IFS='=' read -r name value; do
+            # Skip internal variables
+            if [[ $name == "_"* ]] || [[ $name == "SHLVL" ]] || [[ $name == "PWD" ]] || [[ $name == "OLDPWD" ]]; then
+                continue
+            fi
+            # Properly quote the value to preserve spaces and special characters
+            printf "export %s=%q\n" "$name" "$value" >> "${temp_file}"
+        done <<< "$source"
+    fi
+    
+    # Replace the old file with the new one
+    mv "${temp_file}" "${target_file}"
+}
+
+# Set up environment variables
+ENV_FILE="/app/.env"
+
+# Step 1: Try to load from existing .env file
+if [ -f "${ENV_FILE}" ]; then
+    # shellcheck source=/dev/null
+    source "${ENV_FILE}"
+    log "INFO" "Loaded environment variables from ${ENV_FILE}"
+else
+    log "INFO" "No .env file found at ${ENV_FILE}, using container environment variables"
+    # Create .env from current environment
+    save_env_vars "${ENV_FILE}"
+    log "INFO" "Created ${ENV_FILE} from current environment"
+    # Source the new file
+    # shellcheck source=/dev/null
+    source "${ENV_FILE}"
+fi
+
+# Step 2: Check if we have what we need; if not, try container process
+if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
+    if [ -f "/proc/1/environ" ]; then
+        log "INFO" "Attempting to load environment variables from container process"
+        # Read environment variables from container's process
+        CONTAINER_ENV=$(tr '\0' '\n' < /proc/1/environ | grep -v "^_=")
         
-        # Replace the old file with the new one
-        mv "${ENV_FILE}.new" "${ENV_FILE}"
+        # Save to .env file and update current environment
+        save_env_vars "${ENV_FILE}" "${CONTAINER_ENV}"
+        log "INFO" "Updated ${ENV_FILE} with container process environment"
         
         # Export to current process
-        while IFS='=' read -r key value; do
-            if [ -n "$key" ]; then
-                export "$key=$value"
-            fi
-        done <<< "${CONTAINER_ENV}"
+        # shellcheck source=/dev/null
+        source "${ENV_FILE}"
         
-        # Check again after loading container environment
+        # Final check
         if ! env | grep -q -E '_HARVEST_ACCOUNT_ID='; then
             error "No Harvest account IDs found in environment variables. Make sure container environment variables are properly configured."
         else
