@@ -14,10 +14,17 @@ let currentUser = null;
 let currentJobId = null;
 
 function initGoogleAuth() {
-    google.accounts.id.initialize({
-        client_id: CONFIG.GOOGLE_CLIENT_ID,
-        callback: handleCredentialResponse
-    });
+    // Wait for Google Identity Services library to load
+    if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+        google.accounts.id.initialize({
+            client_id: CONFIG.GOOGLE_CLIENT_ID,
+            callback: handleCredentialResponse
+        });
+        console.log('Google Auth initialized');
+    } else {
+        // Retry after a short delay if library not loaded yet
+        setTimeout(initGoogleAuth, 100);
+    }
 }
 
 function handleCredentialResponse(response) {
