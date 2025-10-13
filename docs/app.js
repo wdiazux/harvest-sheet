@@ -180,18 +180,24 @@ async function triggerGitHubAction(params) {
         };
 
         // Trigger workflow via repository_dispatch
+        const requestBody = {
+            event_type: 'harvest-web-trigger',
+            client_payload: workflowParams
+        };
+
+        console.log('Triggering workflow with:', requestBody);
+
         const response = await fetch(`${CONFIG.GITHUB_API_BASE}/repos/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/dispatches`, {
             method: 'POST',
             headers: {
                 'Accept': 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json',
-                'Authorization': `token ${CONFIG.GITHUB_TOKEN}`
+                'Authorization': `Bearer ${CONFIG.GITHUB_TOKEN}`
             },
-            body: JSON.stringify({
-                event_type: 'harvest-web-trigger',
-                client_payload: workflowParams
-            })
+            body: JSON.stringify(requestBody)
         });
+
+        console.log('Response status:', response.status);
 
         if (response.status === 204) {
             showJobStatus('✅ Workflow triggered successfully! Check the Actions tab for progress.', 'success');
@@ -209,7 +215,9 @@ async function triggerGitHubAction(params) {
                 `;
             }, 1000);
         } else {
-            throw new Error(`GitHub API returned status ${response.status}`);
+            const errorText = await response.text();
+            console.error('GitHub API error:', errorText);
+            throw new Error(`GitHub API returned status ${response.status}: ${errorText}`);
         }
 
     } catch (error) {
