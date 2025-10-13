@@ -22,11 +22,11 @@ jobs:
 
       - name: Inject Google Client ID
         env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_SA_CLIENT_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
         run: |
           # Verify secret is available
           if [ -z "$GOOGLE_CLIENT_ID" ]; then
-            echo "❌ ERROR: GOOGLE_SA_CLIENT_ID secret is not set!"
+            echo "❌ ERROR: OAUTH_CLIENT_ID secret is not set!"
             exit 1
           fi
 
