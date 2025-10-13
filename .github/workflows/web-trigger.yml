@@ -143,12 +143,13 @@ jobs:
             exit 1
           fi
 
-          if echo "$ALLOWED_USERS" | grep -qx "$USER_EMAIL"; then
+          # Check if user email is in comma-separated list
+          if echo ",$ALLOWED_USERS," | grep -q ",$USER_EMAIL,"; then
             echo "✅ User $USER_EMAIL is authorized"
             echo "authorized=true" >> $GITHUB_OUTPUT
           else
             echo "❌ User $USER_EMAIL is not authorized"
-            echo "❌ Available users: $ALLOWED_USERS"
+            echo "❌ Please check ALLOWED_USERS secret contains your email"
             exit 1
           fi
 
