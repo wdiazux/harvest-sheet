@@ -3,3 +3,5 @@
 .direnv
 output/*
 debug/*.json
+CLAUDE.md
+web-setup-instructions.md

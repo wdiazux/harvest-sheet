@@ -1,0 +1,283 @@
+name: Web Interface Trigger
+
+on:
+  repository_dispatch:
+    types: [harvest-web-trigger]
+  workflow_dispatch:
+    inputs:
+      user_email:
+        description: 'Authenticated user email'
+        required: true
+        type: string
+      user_token_hash:
+        description: 'Hashed OAuth token for verification'
+        required: false
+        type: string
+      csrf_token:
+        description: 'CSRF protection token'
+        required: false
+        type: string
+      from_date:
+        description: 'Start date (YYYY-MM-DD)'
+        required: true
+        type: string
+      to_date:
+        description: 'End date (YYYY-MM-DD)'
+        required: true
+        type: string
+      user_prefix:
+        description: 'User prefix or "all"'
+        required: false
+        default: 'all'
+        type: string
+      upload_to_sheets:
+        description: 'Upload to Google Sheets'
+        required: false
+        default: true
+        type: boolean
+      include_advanced_fields:
+        description: 'Include advanced fields'
+        required: false
+        default: false
+        type: boolean
+      enable_raw_json:
+        description: 'Export raw JSON'
+        required: false
+        default: false
+        type: boolean
+      debug_mode:
+        description: 'Enable debug mode'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  validate-and-run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Extract and validate parameters
+        id: params
+        run: |
+          USER_EMAIL="${{ github.event.inputs.user_email }}"
+          TOKEN_HASH="${{ github.event.inputs.user_token_hash }}"
+          CSRF_TOKEN="${{ github.event.inputs.csrf_token }}"
+          FROM_DATE="${{ github.event.inputs.from_date }}"
+          TO_DATE="${{ github.event.inputs.to_date }}"
+          USER_PREFIX="${{ github.event.inputs.user_prefix }}"
+
+          if [[ ! "$FROM_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "❌ Invalid from_date format. Use YYYY-MM-DD"
+            exit 1
+          fi
+
+          if [[ ! "$TO_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "❌ Invalid to_date format. Use YYYY-MM-DD"
+            exit 1
+          fi
+
+          if [[ ! "$USER_EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            echo "❌ Invalid email format"
+            exit 1
+          fi
+
+          USER_PREFIX=$(echo "$USER_PREFIX" | sed 's/[^a-zA-Z0-9_]//g')
+
+          echo "user_email=$USER_EMAIL" >> $GITHUB_OUTPUT
+          echo "user_token_hash=$TOKEN_HASH" >> $GITHUB_OUTPUT
+          echo "csrf_token=$CSRF_TOKEN" >> $GITHUB_OUTPUT
+          echo "from_date=$FROM_DATE" >> $GITHUB_OUTPUT
+          echo "to_date=$TO_DATE" >> $GITHUB_OUTPUT
+          echo "user_prefix=$USER_PREFIX" >> $GITHUB_OUTPUT
+          echo "upload_to_sheets=${{ github.event.inputs.upload_to_sheets }}" >> $GITHUB_OUTPUT
+          echo "include_advanced_fields=${{ github.event.inputs.include_advanced_fields }}" >> $GITHUB_OUTPUT
+          echo "enable_raw_json=${{ github.event.inputs.enable_raw_json }}" >> $GITHUB_OUTPUT
+          echo "debug_mode=${{ github.event.inputs.debug_mode }}" >> $GITHUB_OUTPUT
+
+          echo "✅ Parameters validated and sanitized"
+
+      - name: Validate user authorization
+        id: auth
+        run: |
+          ALLOWED_USERS="${{ secrets.ALLOWED_USERS }}"
+          USER_EMAIL="${{ steps.params.outputs.user_email }}"
+          TOKEN_HASH="${{ steps.params.outputs.user_token_hash }}"
+          CSRF_TOKEN="${{ steps.params.outputs.csrf_token }}"
+
+          echo "🔐 Checking authorization for: $USER_EMAIL"
+
+          if [ -z "$ALLOWED_USERS" ]; then
+            echo "❌ ALLOWED_USERS secret not configured"
+            exit 1
+          fi
+
+          if echo "$ALLOWED_USERS" | grep -qx "$USER_EMAIL"; then
+            echo "✅ User $USER_EMAIL is authorized"
+            echo "authorized=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ User $USER_EMAIL is not authorized"
+            echo "❌ Available users: $ALLOWED_USERS"
+            exit 1
+          fi
+
+          if [ ! -z "$TOKEN_HASH" ]; then
+            echo "🔒 Token hash received for additional verification: ${TOKEN_HASH:0:8}..."
+          fi
+
+          if [ ! -z "$CSRF_TOKEN" ]; then
+            echo "🔒 CSRF token received: ${CSRF_TOKEN:0:8}..."
+          fi
+
+          echo "⏰ Request time: $(date)"
+          echo "👤 Triggered by: ${{ github.actor }}"
+
+      - name: Security audit log
+        run: |
+          echo "🔍 SECURITY AUDIT LOG"
+          echo "===================="
+          echo "Timestamp: $(date -u)"
+          echo "User Email: ${{ steps.params.outputs.user_email }}"
+          echo "GitHub Actor: ${{ github.actor }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Run Number: ${{ github.run_number }}"
+          echo "Workflow: ${{ github.workflow }}"
+
+          echo "Parameters:"
+          echo "  - Date Range: ${{ steps.params.outputs.from_date }} to ${{ steps.params.outputs.to_date }}"
+          echo "  - User Prefix: ${{ steps.params.outputs.user_prefix }}"
+          echo "  - Upload Sheets: ${{ steps.params.outputs.upload_to_sheets }}"
+          echo "  - Advanced Fields: ${{ steps.params.outputs.include_advanced_fields }}"
+          echo "  - Debug Mode: ${{ steps.params.outputs.debug_mode }}"
+
+          if [ ! -z "${{ steps.params.outputs.token_hash }}" ]; then
+            echo "  - Token Hash: ${{ steps.params.outputs.token_hash }}"
+          fi
+
+          echo "===================="
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Set environment variables securely
+        run: |
+          upload_sheets="${{ steps.params.outputs.upload_to_sheets }}"
+          enable_json="${{ steps.params.outputs.enable_raw_json }}"
+          advanced_fields="${{ steps.params.outputs.include_advanced_fields }}"
+
+          echo "UPLOAD_TO_GOOGLE_SHEET=${upload_sheets}" >> $GITHUB_ENV
+          echo "ENABLE_RAW_JSON=${enable_json}" >> $GITHUB_ENV
+          echo "INCLUDE_ADVANCED_FIELDS=${advanced_fields}" >> $GITHUB_ENV
+          echo "FROM_DATE=${{ steps.params.outputs.from_date }}" >> $GITHUB_ENV
+          echo "TO_DATE=${{ steps.params.outputs.to_date }}" >> $GITHUB_ENV
+
+          if [ ! -z "${{ secrets.GOOGLE_SA_PROJECT_ID }}" ]; then
+            {
+              echo "GOOGLE_SA_PROJECT_ID=${{ secrets.GOOGLE_SA_PROJECT_ID }}"
+              echo "GOOGLE_SA_PRIVATE_KEY_ID=${{ secrets.GOOGLE_SA_PRIVATE_KEY_ID }}"
+              echo "GOOGLE_SA_PRIVATE_KEY=${{ secrets.GOOGLE_SA_PRIVATE_KEY }}"
+              echo "GOOGLE_SA_CLIENT_EMAIL=${{ secrets.GOOGLE_SA_CLIENT_EMAIL }}"
+              echo "GOOGLE_SA_CLIENT_ID=${{ secrets.GOOGLE_SA_CLIENT_ID }}"
+            } >> $GITHUB_ENV
+            echo "✅ Google Service Account credentials loaded"
+          else
+            echo "⚠️ Google Service Account credentials not found - uploads will be skipped"
+          fi
+
+          user_prefix="${{ steps.params.outputs.user_prefix }}"
+          if [ "$user_prefix" != "all" ] && [ ! -z "$user_prefix" ]; then
+            echo "🔐 Loading credentials for user prefix: $user_prefix"
+
+            {
+              echo "${user_prefix}_HARVEST_ACCOUNT_ID=${{ secrets[format('{0}_HARVEST_ACCOUNT_ID', steps.params.outputs.user_prefix)] }}"
+              echo "${user_prefix}_HARVEST_AUTH_TOKEN=${{ secrets[format('{0}_HARVEST_AUTH_TOKEN', steps.params.outputs.user_prefix)] }}"
+              echo "${user_prefix}_HARVEST_USER_AGENT=${{ secrets[format('{0}_HARVEST_USER_AGENT', steps.params.outputs.user_prefix)] }}"
+              echo "${user_prefix}_GOOGLE_SHEET_ID=${{ secrets[format('{0}_GOOGLE_SHEET_ID', steps.params.outputs.user_prefix)] }}"
+              echo "${user_prefix}_GOOGLE_SHEET_TAB_NAME=${{ secrets[format('{0}_GOOGLE_SHEET_TAB_NAME', steps.params.outputs.user_prefix)] }}"
+            } >> $GITHUB_ENV
+
+            echo "✅ User-specific credentials loaded for: $user_prefix"
+          else
+            echo "🔄 Processing all users - credentials loaded dynamically"
+          fi
+
+      - name: Create output directory
+        run: |
+          mkdir -p output
+
+      - name: Run Harvest script
+        id: harvest
+        run: |
+          # Build command arguments
+          ARGS="--from-date ${{ steps.params.outputs.from_date }} --to-date ${{ steps.params.outputs.to_date }}"
+
+          if [ "${{ steps.params.outputs.user_prefix }}" != "all" ]; then
+            ARGS="$ARGS --user ${{ steps.params.outputs.user_prefix }}"
+          fi
+
+          if [ "${{ steps.params.outputs.debug_mode }}" = "true" ]; then
+            ARGS="$ARGS --debug"
+          fi
+
+          echo "Running: python convert_harvest_json_to_csv.py $ARGS"
+
+          # Run the script and capture output
+          python convert_harvest_json_to_csv.py $ARGS 2>&1 | tee harvest_output.log
+
+          echo "script_completed=true" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harvest-export-${{ github.run_number }}
+          path: |
+            output/*.csv
+            output/*.json
+            harvest_output.log
+          retention-days: 30
+
+      - name: Create job summary
+        if: always()
+        run: |
+          echo "# Harvest Export Job Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ steps.params.outputs.user_email }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Date Range:** ${{ steps.params.outputs.from_date }} to ${{ steps.params.outputs.to_date }}" >> $GITHUB_STEP_SUMMARY
+          echo "**User:** ${{ steps.params.outputs.user_prefix }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Upload to Sheets:** ${{ steps.params.outputs.upload_to_sheets }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.harvest.outputs.script_completed }}" = "true" ]; then
+            echo "✅ **Status:** Completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📁 **Generated files:**" >> $GITHUB_STEP_SUMMARY
+            if ls output/*.csv 1> /dev/null 2>&1; then
+              echo "- CSV files: $(ls output/*.csv | wc -l)" >> $GITHUB_STEP_SUMMARY
+            fi
+            if ls output/*.json 1> /dev/null 2>&1; then
+              echo "- JSON files: $(ls output/*.json | wc -l)" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ **Status:** Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📋 **Script Output:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -20 harvest_output.log >> $GITHUB_STEP_SUMMARY || echo "No output log available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

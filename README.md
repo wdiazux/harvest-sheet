@@ -1,10 +1,30 @@
 # Harvest Sheet
 
-This project provides a script to convert Harvest time-tracking data to CSV, with optional Google Sheets upload. The script supports multiple users and scheduling via cron. The project uses Buildah for container builds and NixOS for development.
+Extract time-tracking data from Harvest API and convert to CSV, with optional Google Sheets upload. Features multiple users, scheduled execution, and a **secure web interface** for browser-based access.
+
+## 🌟 **NEW: Secure Web Interface**
+
+**Access your Harvest data through a secure web interface hosted on GitHub Pages!**
+
+✅ **Google OAuth 2.0 authentication**
+✅ **Enterprise-grade security** - Safe for public repositories
+✅ **Manual workflow triggering** - No hardcoded tokens
+✅ **Multi-user support** - Individual access control
+✅ **Complete audit trail** - Security logging
+
+**Quick Start Web Interface:**
+1. Visit your GitHub Pages URL: `https://yourusername.github.io/harvest-report`
+2. Sign in with authorized Google account
+3. Generate secure parameters and manually trigger via GitHub Actions
+4. Download results from workflow artifacts
+
+**Setup Guide**: [web-setup-instructions.md](web-setup-instructions.md)
+**Security Details**: [SECURITY-ANALYSIS.md](SECURITY-ANALYSIS.md)
 
 ---
 
 ## Table of Contents
+- [🌐 Web Interface (NEW)](#-new-secure-web-interface)
 - [General Use](#general-use)
   - [Harvest Sheet Workflow](#harvest-sheet-workflow)
 - [Usage Guide: Harvest Sheet Docker Image](#usage-guide-harvest-sheet-docker-image)
@@ -23,32 +43,39 @@ This project provides a script to convert Harvest time-tracking data to CSV, wit
 
 ## General Use
 
-Harvest Sheet automatically extracts time entries from Harvest and can upload them to Google Sheets. It supports multiple users with different API credentials and Google Sheets destinations.
+Harvest Sheet automatically extracts time entries from Harvest and can upload them to Google Sheets. **Choose your preferred interface:**
+
+### 🌐 **Web Interface** (Recommended)
+- Browser-based with Google OAuth authentication
+- Secure manual workflow triggering
+- No local setup required
+- Perfect for occasional use
+
+### 🐳 **Container/CLI Interface**
+- Docker containers with automated scheduling
+- Command-line execution
+- Local development support
+- Perfect for automated workflows
 
 ### Harvest Sheet Workflow
 
-The application follows this workflow:
+1. **Authentication**: Google OAuth (web) or API credentials (container/CLI)
+2. **Data Retrieval**: Fetches time entries from Harvest API for specified date range
+3. **Data Validation**: Uses Pydantic models to ensure data integrity
+4. **CSV Conversion**: Transforms data to CSV format with pandas
+5. **Upload**: Optionally uploads CSV to Google Sheets
+6. **Multi-User**: Processes all configured users in single execution
 
-1. Retrieves time entries from Harvest API for the specified date range (defaults to last week)
-2. Validates and transforms the data using Pydantic models
-3. Converts the data to CSV format with pandas
-4. Optionally uploads the CSV to Google Sheets
-5. When running via cron, processes all users found in the environment variables
+### Core Features
 
-### Features
+- **Full Harvest API Integration** - Access to all standard and advanced time entry fields
+- **Data Validation** - Pydantic models ensure data integrity
+- **Flexible Output** - Basic or advanced fields in exports
+- **Rich Console Output** - Enhanced terminal feedback with progress indicators
+- **Multi-User Support** - Process time entries for multiple Harvest accounts
+- **Multiple Interfaces** - Web browser, Docker container, or direct Python execution
 
-- **Full Harvest API Integration**: Access to all standard and advanced time entry fields
-- **Data Validation**: Uses Pydantic to ensure data integrity
-- **Flexible Output**: Option to include basic or advanced fields in exports 
-- **Rich Console Output**: Enhanced terminal feedback with progress indicators
-- **Multi-User Support**: Process time entries for multiple Harvest accounts
-- **Automated Scheduling**: Built-in cron support for regular exports
-
-- Converts time-tracking data to CSV
-- Optionally uploads results to Google Sheets
-- Supports both one-off and scheduled (cron) runs
-
-> **Tip:** For most users, simply configure your `.env` file and run the container as shown below. For advanced usage, scheduling, and troubleshooting, see the detailed guide below.
+> **💡 Quick Start**: For browser-based access, use the [web interface](#-new-secure-web-interface). For automated workflows, use the [container approach](#usage-guide-harvest-sheet-docker-image).
 
 ---
 
