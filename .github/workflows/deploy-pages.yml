@@ -1,0 +1,38 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject Google Client ID
+        run: |
+          # Replace placeholder with actual Client ID from secrets
+          sed -i "s/YOUR_GOOGLE_CLIENT_ID/${{ secrets.GOOGLE_SA_CLIENT_ID }}/g" docs/app.js
+          sed -i "s/YOUR_GOOGLE_CLIENT_ID/${{ secrets.GOOGLE_SA_CLIENT_ID }}/g" docs/index.html
+
+          echo "✅ Injected Google Client ID into deployment files"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './docs'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
