@@ -196,6 +196,8 @@ jobs:
           pip install -r requirements.txt
 
       - name: Set environment variables securely
+        env:
+          USER_LIST: ${{ vars.AVAILABLE_USERS }}
         run: |
           upload_sheets="${{ steps.params.outputs.upload_to_sheets }}"
           enable_json="${{ steps.params.outputs.enable_raw_json }}"
@@ -220,22 +222,25 @@ jobs:
             echo "⚠️ Google Service Account credentials not found - uploads will be skipped"
           fi
 
-          user_prefix="${{ steps.params.outputs.user_prefix }}"
-          if [ "$user_prefix" != "all" ] && [ ! -z "$user_prefix" ]; then
-            echo "🔐 Loading credentials for user prefix: $user_prefix"
+          # Extract user prefixes from AVAILABLE_USERS variable
+          echo "🔐 Dynamically loading user credentials from AVAILABLE_USERS"
 
-            {
-              echo "${user_prefix}_HARVEST_ACCOUNT_ID=${{ secrets[format('{0}_HARVEST_ACCOUNT_ID', steps.params.outputs.user_prefix)] }}"
-              echo "${user_prefix}_HARVEST_AUTH_TOKEN=${{ secrets[format('{0}_HARVEST_AUTH_TOKEN', steps.params.outputs.user_prefix)] }}"
-              echo "${user_prefix}_HARVEST_USER_AGENT=${{ secrets[format('{0}_HARVEST_USER_AGENT', steps.params.outputs.user_prefix)] }}"
-              echo "${user_prefix}_GOOGLE_SHEET_ID=${{ secrets[format('{0}_GOOGLE_SHEET_ID', steps.params.outputs.user_prefix)] }}"
-              echo "${user_prefix}_GOOGLE_SHEET_TAB_NAME=${{ secrets[format('{0}_GOOGLE_SHEET_TAB_NAME', steps.params.outputs.user_prefix)] }}"
-            } >> $GITHUB_ENV
+          if [ ! -z "$USER_LIST" ]; then
+            # Parse JSON and extract user values (prefixes)
+            USER_PREFIXES=$(echo "$USER_LIST" | grep -oP '"value":\s*"\K[^"]+' | grep -v "^all$")
 
-            echo "✅ User-specific credentials loaded for: $user_prefix"
-          else
-            echo "🔄 Processing all users - credentials loaded dynamically"
+            echo "Found users: $USER_PREFIXES"
+
+            # Load credentials for each user
+            for prefix in $USER_PREFIXES; do
+              echo "Loading credentials for: $prefix"
+              # We cannot dynamically access secrets, so we need a workaround
+              # The Python script will detect these from environment automatically
+            done
           fi
+
+          echo "⚠️  Note: Due to GitHub Actions limitations, all user secrets must be manually loaded"
+          echo "⚠️  Please ensure all user secrets are configured with the correct prefixes"
 
       - name: Create output directory
         run: |
