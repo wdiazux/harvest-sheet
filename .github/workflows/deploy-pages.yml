@@ -23,7 +23,7 @@ jobs:
       - name: Inject secrets and configuration
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
-          GITHUB_TOKEN_SECRET: ${{ secrets.GITHUB_WORKFLOW_TOKEN }}
+          GITHUB_TOKEN_SECRET: ${{ secrets.WORKFLOW_TRIGGER_TOKEN }}
           AVAILABLE_USERS: ${{ vars.AVAILABLE_USERS }}
         run: |
           # Verify secrets are available
@@ -33,7 +33,7 @@ jobs:
           fi
 
           if [ -z "$GITHUB_TOKEN_SECRET" ]; then
-            echo "❌ ERROR: GITHUB_WORKFLOW_TOKEN secret is not set!"
+            echo "❌ ERROR: WORKFLOW_TRIGGER_TOKEN secret is not set!"
             exit 1
           fi
 
