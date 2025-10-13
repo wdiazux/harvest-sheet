@@ -21,12 +21,33 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Inject Google Client ID
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_SA_CLIENT_ID }}
         run: |
-          # Replace placeholder with actual Client ID from secrets
-          sed -i "s/YOUR_GOOGLE_CLIENT_ID/${{ secrets.GOOGLE_SA_CLIENT_ID }}/g" docs/app.js
-          sed -i "s/YOUR_GOOGLE_CLIENT_ID/${{ secrets.GOOGLE_SA_CLIENT_ID }}/g" docs/index.html
+          # Verify secret is available
+          if [ -z "$GOOGLE_CLIENT_ID" ]; then
+            echo "❌ ERROR: GOOGLE_SA_CLIENT_ID secret is not set!"
+            exit 1
+          fi
 
-          echo "✅ Injected Google Client ID into deployment files"
+          echo "✅ Secret found (length: ${#GOOGLE_CLIENT_ID})"
+
+          # Replace placeholder with actual Client ID from secrets
+          sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/app.js
+          sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/index.html
+
+          # Verify replacement worked
+          if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/app.js; then
+            echo "❌ ERROR: Replacement failed in app.js"
+            exit 1
+          fi
+
+          if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/index.html; then
+            echo "❌ ERROR: Replacement failed in index.html"
+            exit 1
+          fi
+
+          echo "✅ Successfully injected Google Client ID into deployment files"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
