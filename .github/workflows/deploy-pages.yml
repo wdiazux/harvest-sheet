@@ -20,9 +20,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inject Google Client ID
+      - name: Inject secrets and configuration
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          AVAILABLE_USERS: ${{ vars.AVAILABLE_USERS }}
         run: |
           # Verify secret is available
           if [ -z "$GOOGLE_CLIENT_ID" ]; then
@@ -47,7 +48,17 @@ jobs:
             exit 1
           fi
 
-          echo "✅ Successfully injected Google Client ID into deployment files"
+          # Inject user configuration if provided
+          if [ ! -z "$AVAILABLE_USERS" ]; then
+            echo "✅ Injecting user configuration"
+            # Create config.json with user data from GitHub variable
+            echo "$AVAILABLE_USERS" > docs/config.json
+            echo "✅ User configuration injected"
+          else
+            echo "⚠️  No AVAILABLE_USERS variable set, using default config.json"
+          fi
+
+          echo "✅ Successfully injected all configuration"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

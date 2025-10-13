@@ -1,0 +1,7 @@
+{
+  "users": [
+    { "value": "all", "label": "All Users" },
+    { "value": "USER1", "label": "User 1" },
+    { "value": "USER2", "label": "User 2" }
+  ]
+}

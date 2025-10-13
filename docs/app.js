@@ -1,17 +1,40 @@
 const CONFIG = {
     GOOGLE_CLIENT_ID: 'YOUR_GOOGLE_CLIENT_ID',
     GITHUB_OWNER: 'wdiazux',
-    GITHUB_REPO: 'harvest-report',
+    GITHUB_REPO: 'harvest-sheet',
     GITHUB_API_BASE: 'https://api.github.com',
-    AVAILABLE_USERS: [
-        { value: 'all', label: 'All Users' },
-        { value: 'USER1', label: 'User 1' },
-        { value: 'USER2', label: 'User 2' }
-    ]
+    AVAILABLE_USERS: [] // Will be loaded from config.json
 };
 
 let currentUser = null;
 let currentJobId = null;
+
+// Load user configuration from config.json
+async function loadUserConfig() {
+    try {
+        const response = await fetch('config.json');
+        const data = await response.json();
+        CONFIG.AVAILABLE_USERS = data.users || [];
+        console.log('✅ User configuration loaded:', CONFIG.AVAILABLE_USERS.length, 'users');
+        populateUserSelect();
+    } catch (error) {
+        console.error('❌ Failed to load user configuration:', error);
+        // Fallback to default
+        CONFIG.AVAILABLE_USERS = [{ value: 'all', label: 'All Users' }];
+        populateUserSelect();
+    }
+}
+
+function populateUserSelect() {
+    const userSelect = document.getElementById('userSelect');
+    userSelect.innerHTML = '';
+    CONFIG.AVAILABLE_USERS.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.value;
+        option.textContent = user.label;
+        userSelect.appendChild(option);
+    });
+}
 
 function initGoogleAuth() {
     // Wait for Google Identity Services library to load
@@ -266,5 +289,6 @@ async function checkJobStatus() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    loadUserConfig(); // Load users first
     initGoogleAuth();
 });
