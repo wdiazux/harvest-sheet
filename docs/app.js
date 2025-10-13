@@ -167,7 +167,6 @@ async function triggerGitHubAction(params) {
     try {
         const workflowParams = {
             user_email: sanitizeInput(currentUser.email),
-            user_token_hash: await hashToken(currentUser.token),
             from_date: sanitizeInput(params.from_date),
             to_date: sanitizeInput(params.to_date),
             user_prefix: sanitizeInput(params.user_prefix),
@@ -175,8 +174,8 @@ async function triggerGitHubAction(params) {
             include_advanced_fields: params.include_advanced_fields,
             enable_raw_json: params.enable_raw_json,
             debug_mode: params.debug_mode,
-            timestamp: Date.now(),
-            csrf_token: generateCSRFToken()
+            // Combine auth fields into one to stay under 10 property limit
+            auth_data: `${await hashToken(currentUser.token)}:${generateCSRFToken()}:${Date.now()}`
         };
 
         // Trigger workflow via repository_dispatch

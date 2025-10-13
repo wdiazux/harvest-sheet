@@ -73,8 +73,6 @@ jobs:
           # Support both workflow_dispatch and repository_dispatch
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             USER_EMAIL="${{ github.event.client_payload.user_email }}"
-            TOKEN_HASH="${{ github.event.client_payload.user_token_hash }}"
-            CSRF_TOKEN="${{ github.event.client_payload.csrf_token }}"
             FROM_DATE="${{ github.event.client_payload.from_date }}"
             TO_DATE="${{ github.event.client_payload.to_date }}"
             USER_PREFIX="${{ github.event.client_payload.user_prefix }}"
@@ -82,6 +80,11 @@ jobs:
             ADVANCED_FIELDS="${{ github.event.client_payload.include_advanced_fields }}"
             RAW_JSON="${{ github.event.client_payload.enable_raw_json }}"
             DEBUG_MODE="${{ github.event.client_payload.debug_mode }}"
+
+            # Parse combined auth_data field (format: token_hash:csrf_token:timestamp)
+            AUTH_DATA="${{ github.event.client_payload.auth_data }}"
+            TOKEN_HASH=$(echo "$AUTH_DATA" | cut -d':' -f1)
+            CSRF_TOKEN=$(echo "$AUTH_DATA" | cut -d':' -f2)
           else
             USER_EMAIL="${{ github.event.inputs.user_email }}"
             TOKEN_HASH="${{ github.event.inputs.user_token_hash }}"
