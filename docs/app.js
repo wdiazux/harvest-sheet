@@ -1,5 +1,6 @@
 const CONFIG = {
     GOOGLE_CLIENT_ID: 'YOUR_GOOGLE_CLIENT_ID',
+    GITHUB_TOKEN: 'YOUR_GITHUB_TOKEN',
     GITHUB_OWNER: 'wdiazux',
     GITHUB_REPO: 'harvest-sheet',
     GITHUB_API_BASE: 'https://api.github.com',
@@ -161,7 +162,7 @@ document.getElementById('harvestForm').addEventListener('submit', async function
 async function triggerGitHubAction(params) {
     const runButton = document.getElementById('runButton');
     runButton.disabled = true;
-    runButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing...';
+    runButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Triggering workflow...';
 
     try {
         const workflowParams = {
@@ -178,11 +179,42 @@ async function triggerGitHubAction(params) {
             csrf_token: generateCSRFToken()
         };
 
-        showManualTriggerInstructions(workflowParams);
+        // Trigger workflow via repository_dispatch
+        const response = await fetch(`${CONFIG.GITHUB_API_BASE}/repos/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/dispatches`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+                'Authorization': `token ${CONFIG.GITHUB_TOKEN}`
+            },
+            body: JSON.stringify({
+                event_type: 'harvest-web-trigger',
+                client_payload: workflowParams
+            })
+        });
+
+        if (response.status === 204) {
+            showJobStatus('✅ Workflow triggered successfully! Check the Actions tab for progress.', 'success');
+            document.getElementById('jobStatus').classList.remove('hidden');
+
+            // Show link to actions page
+            setTimeout(() => {
+                const actionsUrl = `https://github.com/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/actions`;
+                document.getElementById('statusContent').innerHTML += `
+                    <div class="mt-3">
+                        <a href="${actionsUrl}" target="_blank" class="btn btn-primary">
+                            <i class="fas fa-external-link-alt"></i> View on GitHub Actions
+                        </a>
+                    </div>
+                `;
+            }, 1000);
+        } else {
+            throw new Error(`GitHub API returned status ${response.status}`);
+        }
 
     } catch (error) {
-        console.error('Error preparing job:', error);
-        showJobStatus('Failed to prepare job parameters. Please try again.', 'error');
+        console.error('Error triggering workflow:', error);
+        showJobStatus('❌ Failed to trigger workflow. Please try again or check your permissions.', 'error');
     } finally {
         runButton.disabled = false;
         runButton.innerHTML = '<i class="fas fa-play"></i> Generate Report';

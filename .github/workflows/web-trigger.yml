@@ -70,12 +70,30 @@ jobs:
       - name: Extract and validate parameters
         id: params
         run: |
-          USER_EMAIL="${{ github.event.inputs.user_email }}"
-          TOKEN_HASH="${{ github.event.inputs.user_token_hash }}"
-          CSRF_TOKEN="${{ github.event.inputs.csrf_token }}"
-          FROM_DATE="${{ github.event.inputs.from_date }}"
-          TO_DATE="${{ github.event.inputs.to_date }}"
-          USER_PREFIX="${{ github.event.inputs.user_prefix }}"
+          # Support both workflow_dispatch and repository_dispatch
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            USER_EMAIL="${{ github.event.client_payload.user_email }}"
+            TOKEN_HASH="${{ github.event.client_payload.user_token_hash }}"
+            CSRF_TOKEN="${{ github.event.client_payload.csrf_token }}"
+            FROM_DATE="${{ github.event.client_payload.from_date }}"
+            TO_DATE="${{ github.event.client_payload.to_date }}"
+            USER_PREFIX="${{ github.event.client_payload.user_prefix }}"
+            UPLOAD_SHEETS="${{ github.event.client_payload.upload_to_sheets }}"
+            ADVANCED_FIELDS="${{ github.event.client_payload.include_advanced_fields }}"
+            RAW_JSON="${{ github.event.client_payload.enable_raw_json }}"
+            DEBUG_MODE="${{ github.event.client_payload.debug_mode }}"
+          else
+            USER_EMAIL="${{ github.event.inputs.user_email }}"
+            TOKEN_HASH="${{ github.event.inputs.user_token_hash }}"
+            CSRF_TOKEN="${{ github.event.inputs.csrf_token }}"
+            FROM_DATE="${{ github.event.inputs.from_date }}"
+            TO_DATE="${{ github.event.inputs.to_date }}"
+            USER_PREFIX="${{ github.event.inputs.user_prefix }}"
+            UPLOAD_SHEETS="${{ github.event.inputs.upload_to_sheets }}"
+            ADVANCED_FIELDS="${{ github.event.inputs.include_advanced_fields }}"
+            RAW_JSON="${{ github.event.inputs.enable_raw_json }}"
+            DEBUG_MODE="${{ github.event.inputs.debug_mode }}"
+          fi
 
           if [[ ! "$FROM_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
             echo "❌ Invalid from_date format. Use YYYY-MM-DD"
@@ -100,10 +118,10 @@ jobs:
           echo "from_date=$FROM_DATE" >> $GITHUB_OUTPUT
           echo "to_date=$TO_DATE" >> $GITHUB_OUTPUT
           echo "user_prefix=$USER_PREFIX" >> $GITHUB_OUTPUT
-          echo "upload_to_sheets=${{ github.event.inputs.upload_to_sheets }}" >> $GITHUB_OUTPUT
-          echo "include_advanced_fields=${{ github.event.inputs.include_advanced_fields }}" >> $GITHUB_OUTPUT
-          echo "enable_raw_json=${{ github.event.inputs.enable_raw_json }}" >> $GITHUB_OUTPUT
-          echo "debug_mode=${{ github.event.inputs.debug_mode }}" >> $GITHUB_OUTPUT
+          echo "upload_to_sheets=$UPLOAD_SHEETS" >> $GITHUB_OUTPUT
+          echo "include_advanced_fields=$ADVANCED_FIELDS" >> $GITHUB_OUTPUT
+          echo "enable_raw_json=$RAW_JSON" >> $GITHUB_OUTPUT
+          echo "debug_mode=$DEBUG_MODE" >> $GITHUB_OUTPUT
 
           echo "✅ Parameters validated and sanitized"
 

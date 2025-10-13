@@ -23,28 +23,40 @@ jobs:
       - name: Inject secrets and configuration
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          GITHUB_TOKEN_SECRET: ${{ secrets.GITHUB_WORKFLOW_TOKEN }}
           AVAILABLE_USERS: ${{ vars.AVAILABLE_USERS }}
         run: |
-          # Verify secret is available
+          # Verify secrets are available
           if [ -z "$GOOGLE_CLIENT_ID" ]; then
             echo "❌ ERROR: OAUTH_CLIENT_ID secret is not set!"
             exit 1
           fi
 
-          echo "✅ Secret found (length: ${#GOOGLE_CLIENT_ID})"
+          if [ -z "$GITHUB_TOKEN_SECRET" ]; then
+            echo "❌ ERROR: GITHUB_WORKFLOW_TOKEN secret is not set!"
+            exit 1
+          fi
 
-          # Replace placeholder with actual Client ID from secrets
+          echo "✅ Secrets found (OAuth ID length: ${#GOOGLE_CLIENT_ID}, Token length: ${#GITHUB_TOKEN_SECRET})"
+
+          # Replace placeholders with actual values from secrets
           sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/app.js
           sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/index.html
+          sed -i "s|YOUR_GITHUB_TOKEN|${GITHUB_TOKEN_SECRET}|g" docs/app.js
 
-          # Verify replacement worked
+          # Verify replacements worked
           if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/app.js; then
-            echo "❌ ERROR: Replacement failed in app.js"
+            echo "❌ ERROR: OAuth Client ID replacement failed in app.js"
             exit 1
           fi
 
           if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/index.html; then
-            echo "❌ ERROR: Replacement failed in index.html"
+            echo "❌ ERROR: OAuth Client ID replacement failed in index.html"
+            exit 1
+          fi
+
+          if grep -q "YOUR_GITHUB_TOKEN" docs/app.js; then
+            echo "❌ ERROR: GitHub token replacement failed in app.js"
             exit 1
           fi
 
