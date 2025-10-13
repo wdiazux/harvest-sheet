@@ -197,7 +197,7 @@ jobs:
 
       - name: Set environment variables securely
         env:
-          USER_LIST: ${{ vars.AVAILABLE_USERS }}
+          USER_CREDS: ${{ secrets.USER_CREDENTIALS }}
         run: |
           upload_sheets="${{ steps.params.outputs.upload_to_sheets }}"
           enable_json="${{ steps.params.outputs.enable_raw_json }}"
@@ -209,6 +209,7 @@ jobs:
           echo "FROM_DATE=${{ steps.params.outputs.from_date }}" >> $GITHUB_ENV
           echo "TO_DATE=${{ steps.params.outputs.to_date }}" >> $GITHUB_ENV
 
+          # Load Google Service Account credentials
           if [ ! -z "${{ secrets.GOOGLE_SA_PROJECT_ID }}" ]; then
             {
               echo "GOOGLE_SA_PROJECT_ID=${{ secrets.GOOGLE_SA_PROJECT_ID }}"
@@ -219,28 +220,29 @@ jobs:
             } >> $GITHUB_ENV
             echo "✅ Google Service Account credentials loaded"
           else
-            echo "⚠️ Google Service Account credentials not found - uploads will be skipped"
+            echo "⚠️ Google Service Account credentials not found"
           fi
 
-          # Extract user prefixes from AVAILABLE_USERS variable
-          echo "🔐 Dynamically loading user credentials from AVAILABLE_USERS"
+          # Load user credentials dynamically from JSON secret
+          echo "🔐 Loading user credentials from USER_CREDENTIALS secret"
 
-          if [ ! -z "$USER_LIST" ]; then
-            # Parse JSON and extract user values (prefixes)
-            USER_PREFIXES=$(echo "$USER_LIST" | grep -oP '"value":\s*"\K[^"]+' | grep -v "^all$")
-
-            echo "Found users: $USER_PREFIXES"
-
-            # Load credentials for each user
-            for prefix in $USER_PREFIXES; do
-              echo "Loading credentials for: $prefix"
-              # We cannot dynamically access secrets, so we need a workaround
-              # The Python script will detect these from environment automatically
-            done
+          if [ -z "$USER_CREDS" ]; then
+            echo "❌ ERROR: USER_CREDENTIALS secret not found!"
+            exit 1
           fi
 
-          echo "⚠️  Note: Due to GitHub Actions limitations, all user secrets must be manually loaded"
-          echo "⚠️  Please ensure all user secrets are configured with the correct prefixes"
+          # Parse JSON and create environment variables for each user
+          echo "$USER_CREDS" | jq -r '.users[] |
+            "\(.prefix)_HARVEST_ACCOUNT_ID=\(.harvest_account_id)\n" +
+            "\(.prefix)_HARVEST_AUTH_TOKEN=\(.harvest_auth_token)\n" +
+            "\(.prefix)_HARVEST_USER_AGENT=\(.harvest_user_agent)\n" +
+            "\(.prefix)_HARVEST_USER_ID=\(.harvest_user_id)\n" +
+            "\(.prefix)_GOOGLE_SHEET_ID=\(.google_sheet_id)\n" +
+            "\(.prefix)_GOOGLE_SHEET_TAB_NAME=\(.google_sheet_tab_name)"
+          ' >> $GITHUB_ENV
+
+          user_count=$(echo "$USER_CREDS" | jq -r '.users | length')
+          echo "✅ Loaded credentials for $user_count users"
 
       - name: Create output directory
         run: |
