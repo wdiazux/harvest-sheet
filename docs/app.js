@@ -146,9 +146,7 @@ document.getElementById('harvestForm').addEventListener('submit', async function
         to_date: document.getElementById('toDate').value,
         user_prefix: document.getElementById('userSelect').value,
         upload_to_sheets: document.getElementById('uploadToSheets').checked,
-        include_advanced_fields: document.getElementById('includeAdvancedFields').checked,
-        enable_raw_json: document.getElementById('enableRawJson').checked,
-        debug_mode: document.getElementById('debugMode').checked
+        include_advanced_fields: document.getElementById('includeAdvancedFields').checked
     };
 
     try {
@@ -172,8 +170,6 @@ async function triggerGitHubAction(params) {
             user_prefix: sanitizeInput(params.user_prefix),
             upload_to_sheets: params.upload_to_sheets,
             include_advanced_fields: params.include_advanced_fields,
-            enable_raw_json: params.enable_raw_json,
-            debug_mode: params.debug_mode,
             // Combine auth fields into one to stay under 10 property limit
             auth_data: `${await hashToken(currentUser.token)}:${generateCSRFToken()}:${Date.now()}`
         };
@@ -276,9 +272,7 @@ function showManualTriggerInstructions(params) {
                     </div>
                     <div class="col-md-6">
                         <strong>upload_to_sheets:</strong> ${params.upload_to_sheets}<br>
-                        <strong>include_advanced_fields:</strong> ${params.include_advanced_fields}<br>
-                        <strong>enable_raw_json:</strong> ${params.enable_raw_json}<br>
-                        <strong>debug_mode:</strong> ${params.debug_mode}
+                        <strong>include_advanced_fields:</strong> ${params.include_advanced_fields}
                     </div>
                 </div>
                 <div class="mt-3">

@@ -803,7 +803,7 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
                 values = [default_headers, ['No data available']]
         
         # Open spreadsheet and prepare worksheet
-        with console.status(f"[bold blue]Connecting to Google Sheet: {spreadsheet_id}...") as status:
+        with console.status(f"[bold blue]Connecting to Google Sheet...") as status:
             spreadsheet = client.open_by_key(spreadsheet_id)
             
             # Try to get the worksheet by name, create it if it doesn't exist
@@ -840,8 +840,6 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
             if clean_values and len(clean_values) > 1:  # Only update if we have header + data
                 worksheet.update(clean_values)
                 console.print(f"[bold green]Successfully uploaded {len(clean_values)-1} rows to Google Sheet![/bold green]")
-                console.print(f"  [dim]Spreadsheet ID: {spreadsheet_id}[/dim]")
-                console.print(f"  [dim]Tab: {sheet_name}[/dim]")
             else:
                 # Just update with headers if available
                 if clean_values:
@@ -976,10 +974,8 @@ def main() -> None:
                 
                 # Log the credentials being used (without showing sensitive information)
                 console.print(f"[blue]Using credentials for user prefix: {user_prefix}[/blue]")
-                logging.debug(f"Account ID: {account_id}")
                 logging.debug(f"Auth Token: {'*' * 8}...{'*' * 8}")
                 logging.debug(f"User Agent: {user_agent}")
-                logging.debug(f"User ID: {user_id}")
         except RuntimeError as e:
             console.print(f"[bold red]Configuration error for user {user_prefix}: {e}[/bold red]")
             console.print("[yellow]Skipping this user and continuing with others[/yellow]")
@@ -1057,7 +1053,7 @@ def main() -> None:
             try:
                 # Upload CSV to Google Sheets
                 upload_csv_to_google_sheet(output_file, spreadsheet_id, sheet_name)
-                console.print(f"[green]Successfully uploaded to Google Sheet ID: {spreadsheet_id}, Tab: {sheet_name}[/green]")
+                console.print(f"[green]Successfully uploaded to Google Sheet![/green]")
             except Exception as e:
                 console.print(f"[bold red]Failed to upload to Google Sheets for user {user_prefix}: {e}[/bold red]")
                 console.print_exception()

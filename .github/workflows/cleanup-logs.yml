@@ -1,0 +1,94 @@
+name: Cleanup Workflow Logs
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check auto-delete setting
+        id: check_delete
+        run: |
+          # Default to true if variable not set (enabled by default)
+          AUTO_DELETE="${{ vars.AUTO_DELETE_LOGS }}"
+          if [ -z "$AUTO_DELETE" ] || [ "$AUTO_DELETE" = "true" ] || [ "$AUTO_DELETE" = "1" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "🔒 Auto-delete logs is ENABLED (default or explicitly set)"
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Auto-delete logs is DISABLED - skipping cleanup"
+          fi
+
+      - name: Delete successful workflow runs
+        if: steps.check_delete.outputs.enabled == 'true'
+        run: |
+          echo "🗑️ Starting cleanup of successful workflow runs..."
+          echo "Repository: ${{ github.repository }}"
+
+          # Get list of successful workflow runs from web-trigger workflow (older than 1 hour)
+          # Keep only runs that are completed and successful
+          ONE_HOUR_AGO=$(date -u -d '1 hour ago' --iso-8601=seconds)
+
+          echo "📋 Fetching successful workflow runs older than 1 hour..."
+
+          # Get workflow runs and filter for successful ones
+          RUNS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/workflows/web-trigger.yml/runs?status=success&per_page=100" \
+            --jq '.workflow_runs[] | select(.created_at < "'$ONE_HOUR_AGO'") | .id')
+
+          if [ -z "$RUNS" ]; then
+            echo "✅ No old successful runs to delete"
+            exit 0
+          fi
+
+          DELETED=0
+          FAILED=0
+
+          for run_id in $RUNS; do
+            echo "🗑️ Attempting to delete run: $run_id"
+
+            if gh api \
+              --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/${{ github.repository }}/actions/runs/$run_id" 2>&1; then
+              echo "  ✅ Deleted run $run_id"
+              ((DELETED++))
+            else
+              echo "  ⚠️ Failed to delete run $run_id (may have artifacts or still processing)"
+              ((FAILED++))
+            fi
+
+            # Rate limit: wait between deletions
+            sleep 2
+          done
+
+          echo ""
+          echo "📊 Cleanup Summary:"
+          echo "  ✅ Deleted: $DELETED runs"
+          echo "  ⚠️ Failed: $FAILED runs"
+          echo "  📦 Artifacts are preserved (30-day retention)"
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_TRIGGER_TOKEN }}
+
+      - name: Create summary
+        if: always() && steps.check_delete.outputs.enabled == 'true'
+        run: |
+          echo "# Workflow Log Cleanup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Cleanup completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** Only successful runs older than 1 hour are deleted. Artifacts are preserved." >> $GITHUB_STEP_SUMMARY

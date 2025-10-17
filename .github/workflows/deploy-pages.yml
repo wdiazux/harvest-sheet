@@ -26,51 +26,35 @@ jobs:
           GITHUB_TOKEN_SECRET: ${{ secrets.WORKFLOW_TRIGGER_TOKEN }}
           AVAILABLE_USERS: ${{ vars.AVAILABLE_USERS }}
         run: |
+          # Mask sensitive values
+          echo "::add-mask::$GOOGLE_CLIENT_ID"
+          echo "::add-mask::$GITHUB_TOKEN_SECRET"
+
           # Verify secrets are available
-          if [ -z "$GOOGLE_CLIENT_ID" ]; then
-            echo "❌ ERROR: OAUTH_CLIENT_ID secret is not set!"
+          if [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$GITHUB_TOKEN_SECRET" ]; then
+            echo "❌ Configuration error"
             exit 1
           fi
-
-          if [ -z "$GITHUB_TOKEN_SECRET" ]; then
-            echo "❌ ERROR: WORKFLOW_TRIGGER_TOKEN secret is not set!"
-            exit 1
-          fi
-
-          echo "✅ Secrets found (OAuth ID length: ${#GOOGLE_CLIENT_ID}, Token length: ${#GITHUB_TOKEN_SECRET})"
 
           # Replace placeholders with actual values from secrets
           sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/app.js
           sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/index.html
           sed -i "s|YOUR_GITHUB_TOKEN|${GITHUB_TOKEN_SECRET}|g" docs/app.js
 
-          # Verify replacements worked
-          if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/app.js; then
-            echo "❌ ERROR: OAuth Client ID replacement failed in app.js"
-            exit 1
-          fi
-
-          if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/index.html; then
-            echo "❌ ERROR: OAuth Client ID replacement failed in index.html"
-            exit 1
-          fi
-
-          if grep -q "YOUR_GITHUB_TOKEN" docs/app.js; then
-            echo "❌ ERROR: GitHub token replacement failed in app.js"
+          # Verify replacements worked (silent check)
+          if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/app.js || \
+             grep -q "YOUR_GOOGLE_CLIENT_ID" docs/index.html || \
+             grep -q "YOUR_GITHUB_TOKEN" docs/app.js; then
+            echo "❌ Configuration injection failed"
             exit 1
           fi
 
           # Inject user configuration if provided
           if [ ! -z "$AVAILABLE_USERS" ]; then
-            echo "✅ Injecting user configuration"
-            # Create config.json with user data from GitHub variable
             echo "$AVAILABLE_USERS" > docs/config.json
-            echo "✅ User configuration injected"
-          else
-            echo "⚠️  No AVAILABLE_USERS variable set, using default config.json"
           fi
 
-          echo "✅ Successfully injected all configuration"
+          echo "✅ Deployment configured"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
