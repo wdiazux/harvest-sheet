@@ -566,6 +566,11 @@ def add_summary_rows(df: pd.DataFrame) -> pd.DataFrame:
     if okr_hours > 0:
         summary_rows.append(create_summary_row("TOTAL OKR's & PDP's", okr_hours))
 
+    # 4. Total Hours (sum of all time entries)
+    total_hours = df['Hours'].sum()
+    if total_hours > 0:
+        summary_rows.append(create_summary_row('TOTAL HOURS', total_hours))
+
     # Add summary rows to the DataFrame if any exist
     if summary_rows:
         summary_df = pd.DataFrame(summary_rows)
