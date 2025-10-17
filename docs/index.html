@@ -111,18 +111,38 @@
                             <input class="form-check-input" type="checkbox" id="includeAdvancedFields">
                             <label class="form-check-label" for="includeAdvancedFields">
                                 Include Advanced Fields
+                                <i class="fas fa-info-circle text-muted ms-1"
+                                   data-bs-toggle="tooltip"
+                                   data-bs-placement="right"
+                                   data-bs-html="true"
+                                   title="<strong>Additional Fields:</strong><br>
+                                          • Rounded Hours<br>
+                                          • Is Billed<br>
+                                          • Is Locked<br>
+                                          • Started/Ended Times<br>
+                                          • Created At/Updated At<br>
+                                          • Cost Rate<br><br>
+                                          <small>Useful for billing verification and detailed time tracking analysis.</small>"></i>
                             </label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="enableRawJson">
                             <label class="form-check-label" for="enableRawJson">
                                 Export Raw JSON
+                                <i class="fas fa-info-circle text-muted ms-1"
+                                   data-bs-toggle="tooltip"
+                                   data-bs-placement="right"
+                                   title="Saves the raw API response from Harvest as a JSON file for debugging or custom processing."></i>
                             </label>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="debugMode">
                             <label class="form-check-label" for="debugMode">
                                 Enable Debug Logging
+                                <i class="fas fa-info-circle text-muted ms-1"
+                                   data-bs-toggle="tooltip"
+                                   data-bs-placement="right"
+                                   title="Enables verbose logging in the workflow output for troubleshooting issues."></i>
                             </label>
                         </div>
                     </div>
@@ -158,5 +178,12 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="app.js"></script>
+    <script>
+        // Initialize Bootstrap tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    </script>
 </body>
 </html>
