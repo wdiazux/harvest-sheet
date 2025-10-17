@@ -156,6 +156,13 @@ jobs:
               echo "GOOGLE_SA_CLIENT_EMAIL=${{ secrets.GOOGLE_SA_CLIENT_EMAIL }}"
               echo "GOOGLE_SA_CLIENT_ID=${{ secrets.GOOGLE_SA_CLIENT_ID }}"
             } >> $GITHUB_ENV
+
+            # Mask Google Service Account credentials
+            echo "::add-mask::${{ secrets.GOOGLE_SA_PROJECT_ID }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_PRIVATE_KEY_ID }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_PRIVATE_KEY }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_CLIENT_EMAIL }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_CLIENT_ID }}"
           fi
 
           # Load user credentials dynamically from JSON secret (suppress output)
@@ -174,11 +181,17 @@ jobs:
             "\(.prefix)_GOOGLE_SHEET_TAB_NAME=\(.google_sheet_tab_name)"
           ' >> $GITHUB_ENV
 
-          echo "✅ Environment configured"
+          # Mask all user credentials to prevent exposure in logs
+          echo "$USER_CREDS" | jq -r '.users[] |
+            "::add-mask::\(.harvest_account_id)\n" +
+            "::add-mask::\(.harvest_auth_token)\n" +
+            "::add-mask::\(.harvest_user_agent)\n" +
+            "::add-mask::\(.harvest_user_id)\n" +
+            "::add-mask::\(.google_sheet_id)\n" +
+            "::add-mask::\(.google_sheet_tab_name)"
+          '
 
-      - name: Create output directory
-        run: |
-          mkdir -p output
+          echo "✅ Environment configured"
 
       - name: Run Harvest script
         id: harvest
@@ -190,21 +203,10 @@ jobs:
             ARGS="$ARGS --user ${{ steps.params.outputs.user_prefix }}"
           fi
 
-          # Run the script and capture output (suppress console output)
-          python convert_harvest_json_to_csv.py $ARGS > harvest_output.log 2>&1
+          # Run the script (output only to Google Sheets, no local artifacts for security)
+          python convert_harvest_json_to_csv.py $ARGS 2>&1 | head -20
 
           echo "script_completed=true" >> $GITHUB_OUTPUT
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: harvest-export-${{ github.run_number }}
-          path: |
-            output/*.csv
-            output/*.json
-            harvest_output.log
-          retention-days: 30
 
       - name: Create job summary
         if: always()
@@ -215,16 +217,14 @@ jobs:
           if [ "${{ steps.harvest.outputs.script_completed }}" = "true" ]; then
             echo "✅ **Status:** Completed successfully" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📁 **Generated files:**" >> $GITHUB_STEP_SUMMARY
-            if ls output/*.csv 1> /dev/null 2>&1; then
-              echo "- CSV files: $(ls output/*.csv | wc -l)" >> $GITHUB_STEP_SUMMARY
-            fi
+            echo "📊 **Data uploaded to Google Sheets**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🔒 **Security:**" >> $GITHUB_STEP_SUMMARY
+            echo "- All credentials are masked in workflow logs" >> $GITHUB_STEP_SUMMARY
+            echo "- No local artifacts created (data only in Google Sheets)" >> $GITHUB_STEP_SUMMARY
+            echo "- Workflow logs auto-deleted within 1-7 hours" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **Status:** Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please check the workflow logs for error details." >> $GITHUB_STEP_SUMMARY
           fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔒 **Security Note:** Workflow logs will be automatically deleted within 6 hours." >> $GITHUB_STEP_SUMMARY
-          echo "📦 **Artifacts:** Download CSV files from the artifacts section (available for 30 days)." >> $GITHUB_STEP_SUMMARY
