@@ -3,7 +3,6 @@ import json
 import requests
 import argparse
 import pandas as pd
-import numpy as np
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -527,6 +526,55 @@ def parse_time_entries(data: Dict[str, Any]) -> pd.DataFrame:
         return pd.DataFrame(columns=output_columns)
 
 
+def add_summary_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Add summary rows to the DataFrame with totals for billable, non-billable, and specific tasks.
+
+    Args:
+        df: DataFrame containing time entries
+
+    Returns:
+        DataFrame with summary rows appended (if data exists)
+    """
+    # Only add summary rows if there are data rows
+    if df.empty:
+        return df
+
+    # Get all columns to create empty summary rows
+    all_columns = df.columns.tolist()
+
+    # Create a base summary row with empty values for all columns
+    def create_summary_row(notes_text: str, hours_value: float) -> Dict[str, Any]:
+        row = {col: '' for col in all_columns}
+        row['Notes'] = notes_text
+        row['Hours'] = hours_value
+        return row
+
+    summary_rows = []
+
+    # 1. Total Billable Hours
+    billable_hours = df[df['Billable?'] == 'Yes']['Hours'].sum()
+    if billable_hours > 0:
+        summary_rows.append(create_summary_row('TOTAL BILLABLE', billable_hours))
+
+    # 2. Total Non-Billable Hours
+    non_billable_hours = df[df['Billable?'] == 'No']['Hours'].sum()
+    if non_billable_hours > 0:
+        summary_rows.append(create_summary_row('TOTAL NON BILLABLE', non_billable_hours))
+
+    # 3. Total OKR's & PDP's Hours
+    okr_hours = df[df['Task'] == "OKR's & PDP's"]['Hours'].sum()
+    if okr_hours > 0:
+        summary_rows.append(create_summary_row("TOTAL OKR's & PDP's", okr_hours))
+
+    # Add summary rows to the DataFrame if any exist
+    if summary_rows:
+        summary_df = pd.DataFrame(summary_rows)
+        df = pd.concat([df, summary_df], ignore_index=True)
+        console.print(f"[green]Added {len(summary_rows)} summary row(s) to the report[/green]")
+
+    return df
+
+
 def write_csv(data: pd.DataFrame, output_file: str) -> None:
     """Write the pandas DataFrame to a CSV file with the specified output filename.
     
@@ -779,7 +827,7 @@ def upload_csv_to_google_sheet(csv_file: str, spreadsheet_id: str, sheet_name: s
                 clean_row = []
                 for value in row:
                     # Check if it's a float and if it's NaN or infinity
-                    if isinstance(value, float) and (pd.isna(value) or np.isinf(value)):
+                    if isinstance(value, float) and (pd.isna(value) or (value == float('inf') or value == float('-inf'))):
                         clean_row.append('')  # Convert NaN/inf to empty string
                     else:
                         clean_row.append(value)
@@ -826,7 +874,6 @@ def main() -> None:
     parser.add_argument('--output', default=None, help='Output CSV file name (overrides env var)')
     parser.add_argument('--json', default=None, help='(Optional) Save raw JSON to this file')
     parser.add_argument('--user', help='User prefix for environment variables (e.g., WILLIAM_DIAZ_)')
-    parser.add_argument('--all-users', action='store_true', help='Process all users (default behavior now)')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
     
@@ -967,7 +1014,10 @@ def main() -> None:
         try:
             # Convert the JSON data to a pandas DataFrame
             df = parse_time_entries(data)
-            
+
+            # Add summary rows to the DataFrame
+            df = add_summary_rows(df)
+
             # Write the DataFrame to CSV file
             with console.status(f"[bold blue]Writing CSV to {output_file}...") as status:
                 write_csv(df, output_file)
@@ -1019,6 +1069,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # Usage: python convert_harvest_json_to_csv.py [--from-date YYYY-MM-DD] [--to-date YYYY-MM-DD] [--output FILE] [--json FILE] [--user USER_PREFIX] [--all-users]
-    # Note: Processing all users is now the default behavior unless --user is specified
+    # Usage: python convert_harvest_json_to_csv.py [--from-date YYYY-MM-DD] [--to-date YYYY-MM-DD] [--output FILE] [--json FILE] [--user USER_PREFIX]
+    # Note: Processing all users is the default behavior unless --user is specified
     main()

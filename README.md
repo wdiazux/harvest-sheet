@@ -173,7 +173,6 @@ The application supports multiple users with different Harvest accounts and Goog
    FIRSTNAME_LASTNAME_HARVEST_AUTH_TOKEN=your_token_here
    FIRSTNAME_LASTNAME_HARVEST_USER_AGENT=first.last@example.com
    FIRSTNAME_LASTNAME_HARVEST_USER_ID=7654321
-   FIRSTNAME_LASTNAME_CSV_OUTPUT_FILE=harvest_export_firstname_lastname.csv
    FIRSTNAME_LASTNAME_GOOGLE_SHEET_ID=your_sheet_id
    FIRSTNAME_LASTNAME_GOOGLE_SHEET_TAB_NAME=FirstName LastName
    ```
