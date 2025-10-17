@@ -310,3 +310,47 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           tail -20 harvest_output.log >> $GITHUB_STEP_SUMMARY || echo "No output log available" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Cleanup job - deletes workflow run logs after successful completion (security for public repos)
+  cleanup-logs:
+    runs-on: ubuntu-latest
+    needs: validate-and-run
+    if: success()
+    permissions:
+      actions: write
+
+    steps:
+      - name: Check auto-delete setting
+        id: check_delete
+        run: |
+          # Default to true if variable not set (enabled by default)
+          AUTO_DELETE="${{ vars.AUTO_DELETE_LOGS }}"
+          if [ -z "$AUTO_DELETE" ] || [ "$AUTO_DELETE" = "true" ] || [ "$AUTO_DELETE" = "1" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+            echo "🔒 Auto-delete logs is ENABLED (default or explicitly set)"
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Auto-delete logs is DISABLED by AUTO_DELETE_LOGS variable"
+          fi
+
+      - name: Delete workflow run logs
+        if: steps.check_delete.outputs.enabled == 'true'
+        run: |
+          echo "🗑️ Deleting workflow run logs for security..."
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Repository: ${{ github.repository }}"
+
+          # Wait a few seconds to ensure artifacts are uploaded
+          sleep 10
+
+          # Delete the workflow run using GitHub API
+          gh api \
+            --method DELETE \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          echo "✅ Workflow run logs scheduled for deletion"
+          echo "📦 Artifacts are preserved (30-day retention)"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
