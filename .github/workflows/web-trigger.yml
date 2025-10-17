@@ -203,10 +203,18 @@ jobs:
             ARGS="$ARGS --user ${{ steps.params.outputs.user_prefix }}"
           fi
 
-          # Run the script (output only to Google Sheets, no local artifacts for security)
-          python convert_harvest_json_to_csv.py $ARGS 2>&1 | head -20
+          # Run the script to completion (output suppressed for security, data goes to Google Sheets)
+          # Must run to completion to ensure Google Sheets upload happens
+          python convert_harvest_json_to_csv.py $ARGS > /dev/null 2>&1
+          SCRIPT_EXIT_CODE=$?
 
-          echo "script_completed=true" >> $GITHUB_OUTPUT
+          if [ $SCRIPT_EXIT_CODE -eq 0 ]; then
+            echo "✅ Script completed successfully"
+            echo "script_completed=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Script failed with exit code: $SCRIPT_EXIT_CODE"
+            exit $SCRIPT_EXIT_CODE
+          fi
 
       - name: Create job summary
         if: always()
