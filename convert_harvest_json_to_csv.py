@@ -14,7 +14,7 @@ from rich.progress import Progress
 from rich.panel import Panel
 
 # Pydantic for data validation
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 # Create console for rich output
 console = Console()
