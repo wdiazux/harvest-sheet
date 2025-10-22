@@ -1,0 +1,93 @@
+name: Daily Harvest Export
+
+on:
+  schedule:
+    # Run daily at 6:00 AM UTC (adjust timezone as needed)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  export-harvest-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Set environment variables securely
+        env:
+          USER_CREDS: ${{ secrets.USER_CREDENTIALS }}
+        run: |
+          # Always upload to Google Sheets
+          echo "UPLOAD_TO_GOOGLE_SHEET=1" >> $GITHUB_ENV
+
+          # Load Google Service Account credentials
+          if [ -n "${{ secrets.GOOGLE_SA_PROJECT_ID }}" ]; then
+            {
+              echo "GOOGLE_SA_PROJECT_ID=${{ secrets.GOOGLE_SA_PROJECT_ID }}"
+              echo "GOOGLE_SA_PRIVATE_KEY_ID=${{ secrets.GOOGLE_SA_PRIVATE_KEY_ID }}"
+              echo "GOOGLE_SA_PRIVATE_KEY=${{ secrets.GOOGLE_SA_PRIVATE_KEY }}"
+              echo "GOOGLE_SA_CLIENT_EMAIL=${{ secrets.GOOGLE_SA_CLIENT_EMAIL }}"
+              echo "GOOGLE_SA_CLIENT_ID=${{ secrets.GOOGLE_SA_CLIENT_ID }}"
+            } >> $GITHUB_ENV
+
+            # Mask Google Service Account credentials
+            echo "::add-mask::${{ secrets.GOOGLE_SA_PROJECT_ID }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_PRIVATE_KEY_ID }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_PRIVATE_KEY }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_CLIENT_EMAIL }}"
+            echo "::add-mask::${{ secrets.GOOGLE_SA_CLIENT_ID }}"
+          fi
+
+          # Validate USER_CREDENTIALS secret exists
+          if [ -z "$USER_CREDS" ]; then
+            echo "❌ Configuration error"
+            exit 1
+          fi
+
+          # Parse JSON and create environment variables for each user
+          echo "$USER_CREDS" | jq -r '.users[] |
+            "\(.prefix)_HARVEST_ACCOUNT_ID=\(.harvest_account_id)\n" +
+            "\(.prefix)_HARVEST_AUTH_TOKEN=\(.harvest_auth_token)\n" +
+            "\(.prefix)_HARVEST_USER_AGENT=\(.harvest_user_agent)\n" +
+            "\(.prefix)_HARVEST_USER_ID=\(.harvest_user_id)\n" +
+            "\(.prefix)_GOOGLE_SHEET_ID=\(.google_sheet_id)\n" +
+            "\(.prefix)_GOOGLE_SHEET_TAB_NAME=\(.google_sheet_tab_name)"
+          ' >> $GITHUB_ENV
+
+          # Mask all user credentials to prevent exposure in logs
+          echo "$USER_CREDS" | jq -r '.users[] |
+            "::add-mask::\(.harvest_account_id)\n" +
+            "::add-mask::\(.harvest_auth_token)\n" +
+            "::add-mask::\(.harvest_user_agent)\n" +
+            "::add-mask::\(.harvest_user_id)\n" +
+            "::add-mask::\(.google_sheet_id)\n" +
+            "::add-mask::\(.google_sheet_tab_name)"
+          '
+
+          echo "✅ Environment configured"
+
+      - name: Run Harvest export script
+        run: |
+          # Run the script for all users with automatic date range calculation
+          # Script will use last week or current week (Fri-Sun) automatically
+          python convert_harvest_json_to_csv.py > /dev/null 2>&1
+          SCRIPT_EXIT_CODE=$?
+
+          if [ $SCRIPT_EXIT_CODE -eq 0 ]; then
+            echo "✅ Script completed successfully"
+          else
+            echo "❌ Script failed with exit code: $SCRIPT_EXIT_CODE"
+            exit $SCRIPT_EXIT_CODE
+          fi
