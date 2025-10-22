@@ -2,10 +2,16 @@
 
 Extract time-tracking data from Harvest API and convert to CSV, with optional Google Sheets upload. Features multiple users, scheduled execution, and a **secure web interface** for browser-based access.
 
-## 🌟 **NEW: Secure Web Interface**
+## Features
 
-**Access your Harvest data through a secure web interface hosted on GitHub Pages!**
+### 🤖 Automated Daily Exports
+✅ **Scheduled exports** - Runs daily at 6:00 AM UTC
+✅ **Automatic date calculation** - Uses last week or current week (Fri-Sun)
+✅ **Multi-user processing** - Handles all configured users
+✅ **Direct Google Sheets upload** - No artifacts stored in GitHub
+✅ **Enterprise security** - Credentials masked, minimal permissions
 
+### 🌐 Secure Web Interface
 ✅ **Google OAuth 2.0 authentication**
 ✅ **Enterprise-grade security** - Safe for public repositories
 ✅ **Manual workflow triggering** - No hardcoded tokens
@@ -23,8 +29,62 @@ Extract time-tracking data from Harvest API and convert to CSV, with optional Go
 
 ---
 
+## GitHub Actions Workflows
+
+Harvest Sheet includes **5 automated workflows** for complete automation and security:
+
+### 1. 🤖 Daily Harvest Export (`daily-harvest-export.yml`)
+- **Trigger**: Scheduled daily at 6:00 AM UTC, or manual via `workflow_dispatch`
+- **Purpose**: Automated daily export of time entries to Google Sheets
+- **Features**:
+  - Automatic date range calculation (last week or current week Fri-Sun)
+  - Processes all configured users in single run
+  - Direct Google Sheets upload (no CSV artifacts stored)
+  - Secure: credentials masked, output suppressed, minimal permissions
+- **Setup**: Configure `USER_CREDENTIALS` JSON secret with all user details
+
+### 2. 🌐 Web Interface Trigger (`web-trigger.yml`)
+- **Trigger**: `repository_dispatch` from web UI, or manual
+- **Purpose**: Handles secure export requests from the web interface
+- **Features**:
+  - Google OAuth 2.0 user authorization validation
+  - Input sanitization and validation
+  - Dynamic user credential loading from secrets
+  - Parameterized date ranges and user selection
+- **Security**: Email whitelist, token hashing, CSRF protection
+
+### 3. 📦 Build and Push Container (`build-and-push.yml`)
+- **Trigger**: Push to `main` branch (excluding docs), or manual
+- **Purpose**: Builds and publishes container image to GitHub Container Registry
+- **Features**:
+  - Uses buildah for OCI-compatible images
+  - Automatic versioning (date + commit hash)
+  - Tags: `latest` and version-specific
+  - Published to `ghcr.io/username/harvest-sheet`
+
+### 4. 🚀 Deploy GitHub Pages (`deploy-pages.yml`)
+- **Trigger**: Push to `main`, or manual
+- **Purpose**: Deploys secure web interface to GitHub Pages
+- **Features**:
+  - Injects OAuth Client ID and GitHub token into static files
+  - Loads user configuration from repository variables
+  - Serves web UI at `https://username.github.io/harvest-sheet/`
+
+### 5. 🧹 Cleanup Workflow Logs (`cleanup-logs.yml`)
+- **Trigger**: Every 6 hours via cron, or manual
+- **Purpose**: Auto-deletes old workflow logs for security
+- **Features**:
+  - Deletes successful web-trigger runs older than 1 hour
+  - Configurable via `AUTO_DELETE_LOGS` variable (enabled by default)
+  - Protects sensitive data in public repositories
+
+---
+
 ## Table of Contents
-- [🌐 Web Interface (NEW)](#-new-secure-web-interface)
+- [Features](#features)
+  - [Automated Daily Exports](#-automated-daily-exports)
+  - [Secure Web Interface](#-secure-web-interface)
+- [GitHub Actions Workflows](#github-actions-workflows)
 - [General Use](#general-use)
   - [Harvest Sheet Workflow](#harvest-sheet-workflow)
 - [Usage Guide: Harvest Sheet Docker Image](#usage-guide-harvest-sheet-docker-image)
@@ -138,7 +198,7 @@ All jobs use the `/app/cron_wrapper.sh` script which:
 1. Sets up logging with timestamps
 2. Loads environment variables from Docker (uses `/app/.env` as a fallback if available)
 3. Counts all user prefixes in the environment
-4. Runs the Python script once with the `--all-users` flag to process all users in a single execution
+4. Runs the Python script to process all detected users in a single execution
 5. Generates detailed logs in the `/app/logs/` directory
 
 The wrapper script uses Rich for enhanced terminal output and provides detailed progress information during execution.

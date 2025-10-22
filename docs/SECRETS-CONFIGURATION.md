@@ -261,6 +261,10 @@ https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-ABC
 - Each user needs their own Personal Access Token
 - Multiple users can write to the same Google Sheet (different tabs)
 
+**Used by workflows:**
+- `daily-harvest-export.yml` - Processes ALL users in the JSON automatically
+- `web-trigger.yml` - Processes users based on web interface selection
+
 ---
 
 ## 📊 GitHub Variables (Repository Variables)
@@ -495,9 +499,3 @@ For issues or questions:
 1. Check the [Security Audit Report](../SECURITY-AUDIT.md)
 2. Review GitHub Actions logs
 3. Consult the [main README](../README.md)
-
----
-
-**Document Version:** 1.1
-**Last Updated:** 2025-10-17
-**Next Review:** 2026-01-17

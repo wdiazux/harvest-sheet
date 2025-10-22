@@ -27,7 +27,17 @@ This directory contains a secure web interface for the Harvest Sheet application
 
 ## How It Works
 
-### 1. User Authentication Flow
+### 1. Automated Daily Exports
+```
+Scheduled Trigger (6 AM UTC) → GitHub Actions → Harvest API → Google Sheets
+```
+
+1. Daily workflow runs automatically at 6:00 AM UTC
+2. Auto-calculates date range (last week or current week Fri-Sun)
+3. Processes all users from `USER_CREDENTIALS` secret
+4. Uploads directly to Google Sheets (no artifacts stored)
+
+### 2. Manual Web Interface Exports
 ```
 User → Google OAuth → Frontend → Parameter Generation → Manual GitHub Trigger
 ```
@@ -37,7 +47,7 @@ User → Google OAuth → Frontend → Parameter Generation → Manual GitHub Tr
 3. User manually triggers GitHub Actions workflow
 4. Server validates authorization and executes harvest script
 
-### 2. Security Validation Chain
+### 3. Security Validation Chain
 
 #### Client-Side (docs/app.js):
 - Google OAuth token verification
@@ -99,12 +109,18 @@ CONFIG.GITHUB_REPO = 'your-repo-name';
 
 ```
 docs/
-├── index.html          # Main web interface
-├── app.js             # Secure JavaScript logic
-└── README.md          # This file
+├── index.html                   # Main web interface
+├── app.js                       # Secure JavaScript logic
+├── config.json                  # User configuration (auto-generated)
+├── README.md                    # This file
+└── SECRETS-CONFIGURATION.md     # Secrets setup guide
 
 .github/workflows/
-└── web-trigger.yml    # Secure GitHub Actions workflow
+├── daily-harvest-export.yml     # Automated daily exports
+├── web-trigger.yml              # Manual web interface triggers
+├── deploy-pages.yml             # GitHub Pages deployment
+├── build-and-push.yml           # Container image builds
+└── cleanup-logs.yml             # Automated log cleanup
 ```
 
 ## Security Considerations
