@@ -49,6 +49,56 @@ except ImportError:
     service_account = None
     gspread = None
 
+# Security helper functions for masking personal information in logs
+def mask_email(email: str) -> str:
+    """Mask email address for secure logging.
+
+    Args:
+        email: Email address to mask
+
+    Returns:
+        Masked email (e.g., wi***@***.com)
+    """
+    if not email or '@' not in email:
+        return '***'
+
+    try:
+        local, domain = email.split('@', 1)
+        # Show first 2 chars of local part, mask the rest
+        masked_local = local[:2] + '***' if len(local) > 2 else '***'
+        # Mask domain but show TLD
+        domain_parts = domain.split('.')
+        if len(domain_parts) > 1:
+            masked_domain = '***.' + domain_parts[-1]
+        else:
+            masked_domain = '***'
+        return f"{masked_local}@{masked_domain}"
+    except Exception:
+        return '***'
+
+
+def mask_user_prefix(prefix: str) -> str:
+    """Mask user prefix for secure logging.
+
+    Args:
+        prefix: User prefix (e.g., 'WILLIAM_DIAZ_')
+
+    Returns:
+        Hashed identifier (e.g., 'USER_a1b2c3d4')
+    """
+    if not prefix or prefix == '':
+        return 'default'
+
+    try:
+        import hashlib
+        # Create a short hash of the prefix for logging
+        hash_obj = hashlib.sha256(prefix.encode())
+        short_hash = hash_obj.hexdigest()[:8]
+        return f"USER_{short_hash}"
+    except Exception:
+        return 'USER_unknown'
+
+
 # Define Pydantic models for Harvest API data
 class HarvestUser(BaseModel):
     id: int
@@ -204,23 +254,23 @@ def load_environment() -> None:
         if in_docker and os.path.isfile(docker_env_path):
             # In Docker, use /app/.env path
             load_dotenv(docker_env_path)
-            console.print(f"[green]Loaded environment variables from {docker_env_path}[/green]")
+            console.print("[green]Loaded environment variables from .env file[/green]")
             console.print("[dim]Running in Docker container environment[/dim]")
         else:
             # Look for .env in script directory first
             script_dir = os.path.dirname(os.path.abspath(__file__))
             local_env = os.path.join(script_dir, '.env')
-            
+
             if os.path.isfile(local_env):
                 # Use script directory's .env
                 load_dotenv(local_env)
-                console.print(f"[green]Loaded environment variables from {local_env}[/green]")
+                console.print("[green]Loaded environment variables from .env file[/green]")
             else:
                 # Look for .env in parent directories
                 found = find_dotenv(usecwd=True)
                 if found:
                     load_dotenv(found)
-                    console.print(f"[green]Loaded environment variables from {found}[/green]")
+                    console.print("[green]Loaded environment variables from .env file[/green]")
                 else:
                     console.print("[yellow]No .env file found, using only OS environment variables[/yellow]")
         
@@ -230,14 +280,16 @@ def load_environment() -> None:
         # First look for explicitly set USER_PREFIX
         if os.environ.get('USER_PREFIX'):
             USER_PREFIX = os.environ.get('USER_PREFIX', '')
-            console.print(f"[blue]Using explicitly set USER_PREFIX: {USER_PREFIX}[/blue]")
+            masked_prefix = mask_user_prefix(USER_PREFIX)
+            console.print(f"[blue]Using explicitly set user prefix: {masked_prefix}[/blue]")
         else:
             # Check for any already-set user-specific environment variables
             for key in os.environ:
                 if key.endswith('_HARVEST_ACCOUNT_ID') and not key.startswith('USER_'):
                     prefix = key.replace('_HARVEST_ACCOUNT_ID', '')
                     USER_PREFIX = prefix + '_'
-                    console.print(f"[green]Automatically set USER_PREFIX to {USER_PREFIX}[/green]")
+                    masked_prefix = mask_user_prefix(USER_PREFIX)
+                    console.print(f"[green]Automatically detected user prefix: {masked_prefix}[/green]")
                     break
         
         # Verify critical environment variables for Google Sheets
@@ -932,10 +984,12 @@ def main() -> None:
         
         # Get the current user info for logging
         user_email = get_env_variable('HARVEST_USER_AGENT', 'unknown user')
+        masked_email = mask_email(user_email)
+        masked_prefix = mask_user_prefix(user_prefix)
         console.print(f"\n[bold blue]{'='*80}[/bold blue]")
-        console.print(f"[bold blue]Processing time entries for: {user_email} (Prefix: {user_prefix or 'none'})[/bold blue]")
+        console.print(f"[bold blue]Processing time entries for user: {masked_prefix}[/bold blue]")
         console.print(f"[bold blue]{'='*80}[/bold blue]")
-        logging.info(f"Processing time entries for: {user_email} (Prefix: {user_prefix or 'none'})")
+        logging.info(f"Processing time entries for user: {masked_prefix}")
         
         # Determine output file path for this user
         if args.output and len(user_prefixes) == 1:
@@ -978,11 +1032,11 @@ def main() -> None:
                 user_id = get_env_variable('HARVEST_USER_ID')
                 
                 # Log the credentials being used (without showing sensitive information)
-                console.print(f"[blue]Using credentials for user prefix: {user_prefix}[/blue]")
-                logging.debug(f"Auth Token: {'*' * 8}...{'*' * 8}")
-                logging.debug(f"User Agent: {user_agent}")
+                console.print(f"[blue]Using credentials for user: {masked_prefix}[/blue]")
+                logging.debug("Auth Token: (redacted)")
+                logging.debug(f"User Agent: {masked_email}")
         except RuntimeError as e:
-            console.print(f"[bold red]Configuration error for user {user_prefix}: {e}[/bold red]")
+            console.print(f"[bold red]Configuration error for user {masked_prefix}: {e}[/bold red]")
             console.print("[yellow]Skipping this user and continuing with others[/yellow]")
             continue
     
@@ -990,7 +1044,7 @@ def main() -> None:
         try:
             data = download_time_entries(account_id, auth_token, user_agent, from_date, to_date, user_id)
         except Exception as e:
-            console.print(f"[bold red]Failed to download time entries for user {user_prefix}: {e}[/bold red]")
+            console.print(f"[bold red]Failed to download time entries for user {masked_prefix}: {e}[/bold red]")
             console.print_exception()
             console.print("[yellow]Skipping this user and continuing with others[/yellow]")
             continue
@@ -1028,7 +1082,7 @@ def main() -> None:
             else:
                 console.print("[yellow]No time entries found for the specified period[/yellow]")
         except Exception as e:
-            console.print(f"[bold red]Failed to process or write CSV for user {user_prefix}: {e}[/bold red]")
+            console.print(f"[bold red]Failed to process or write CSV for user {masked_prefix}: {e}[/bold red]")
             console.print_exception()
             console.print("[yellow]Skipping Google Sheets upload for this user and continuing[/yellow]")
             continue
@@ -1060,7 +1114,7 @@ def main() -> None:
                 upload_csv_to_google_sheet(output_file, spreadsheet_id, sheet_name)
                 console.print(f"[green]Successfully uploaded to Google Sheet![/green]")
             except Exception as e:
-                console.print(f"[bold red]Failed to upload to Google Sheets for user {user_prefix}: {e}[/bold red]")
+                console.print(f"[bold red]Failed to upload to Google Sheets for user {masked_prefix}: {e}[/bold red]")
                 console.print_exception()
         else:
             console.print("[dim]Google Sheets upload: disabled (set UPLOAD_TO_GOOGLE_SHEET=1 to enable)[/dim]")

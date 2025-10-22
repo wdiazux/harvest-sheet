@@ -29,7 +29,7 @@ email1@domain.com,email2@domain.com,email3@domain.com
 
 **Example:**
 ```
-user1@company.com,user2@company.com,user3@company.com
+user1@example.com,user2@example.com,user3@example.com
 ```
 
 **Notes:**
@@ -204,18 +204,18 @@ These secrets authenticate your application to Google Sheets API.
       "prefix": "USER_ONE",
       "harvest_account_id": "1234567",
       "harvest_auth_token": "1234567.pt.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "harvest_user_agent": "user1@company.com",
-      "harvest_user_id": "9876543",
-      "google_sheet_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-ABCDEFG",
+      "harvest_user_agent": "user1@example.com",
+      "harvest_user_id": "9999999",
+      "google_sheet_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz-EXAMPLE_ID_ONE",
       "google_sheet_tab_name": "User One"
     },
     {
       "prefix": "USER_TWO",
       "harvest_account_id": "1234567",
       "harvest_auth_token": "9876543.pt.yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
-      "harvest_user_agent": "user2@company.com",
-      "harvest_user_id": "5432109",
-      "google_sheet_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-ABCDEFG",
+      "harvest_user_agent": "user2@example.com",
+      "harvest_user_id": "8888888",
+      "google_sheet_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz-EXAMPLE_ID_TWO",
       "google_sheet_tab_name": "User Two"
     }
   ]
@@ -236,8 +236,8 @@ These secrets authenticate your application to Google Sheets API.
 
 **How to extract Google Sheet ID:**
 ```
-https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-ABCDEFG/edit
-                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz-EXAMPLE_ID/edit
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                                       This is your google_sheet_id
 ```
 
@@ -279,9 +279,9 @@ https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-ABC
 {
   "users": [
     { "value": "all", "label": "All Users" },
-    { "value": "USER_ONE", "label": "User One" },
-    { "value": "USER_TWO", "label": "User Two" },
-    { "value": "USER_THREE", "label": "User Three" }
+    { "value": "USER_ONE", "label": "John Smith" },
+    { "value": "USER_TWO", "label": "Jane Doe" },
+    { "value": "USER_THREE", "label": "Bob Johnson" }
   ]
 }
 ```
