@@ -33,13 +33,18 @@ jobs:
           echo "🗑️ Starting cleanup of successful workflow runs..."
           echo "Repository: ${{ github.repository }}"
 
-          # Get list of successful workflow runs from web-trigger workflow (older than 1 hour)
+          # Get list of successful workflow runs (older than 1 hour)
           # Keep only runs that are completed and successful
           ONE_HOUR_AGO=$(date -u -d '1 hour ago' --iso-8601=seconds)
 
           echo "📋 Fetching successful workflow runs older than 1 hour..."
 
-          # Get workflow runs and filter for successful ones
+          TOTAL_DELETED=0
+          TOTAL_FAILED=0
+
+          # Cleanup web-trigger workflow
+          echo ""
+          echo "🌐 Cleaning up web-trigger.yml workflow runs..."
           RUNS=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -47,36 +52,64 @@ jobs:
             --jq '.workflow_runs[] | select(.created_at < "'$ONE_HOUR_AGO'") | .id')
 
           if [ -z "$RUNS" ]; then
-            echo "✅ No old successful runs to delete"
-            exit 0
+            echo "  ✅ No old web-trigger runs to delete"
+          else
+            for run_id in $RUNS; do
+              echo "  🗑️ Attempting to delete run: $run_id"
+
+              if gh api \
+                --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "/repos/${{ github.repository }}/actions/runs/$run_id" 2>&1; then
+                echo "    ✅ Deleted run $run_id"
+                TOTAL_DELETED=$((TOTAL_DELETED + 1))
+              else
+                echo "    ⚠️ Failed to delete run $run_id (may have artifacts or still processing)"
+                TOTAL_FAILED=$((TOTAL_FAILED + 1))
+              fi
+
+              # Rate limit: wait between deletions
+              sleep 2
+            done
           fi
 
-          DELETED=0
-          FAILED=0
+          # Cleanup daily-harvest-export workflow
+          echo ""
+          echo "📅 Cleaning up daily-harvest-export.yml workflow runs..."
+          RUNS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/workflows/daily-harvest-export.yml/runs?status=success&per_page=100" \
+            --jq '.workflow_runs[] | select(.created_at < "'$ONE_HOUR_AGO'") | .id')
 
-          for run_id in $RUNS; do
-            echo "🗑️ Attempting to delete run: $run_id"
+          if [ -z "$RUNS" ]; then
+            echo "  ✅ No old daily-harvest-export runs to delete"
+          else
+            for run_id in $RUNS; do
+              echo "  🗑️ Attempting to delete run: $run_id"
 
-            if gh api \
-              --method DELETE \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/repos/${{ github.repository }}/actions/runs/$run_id" 2>&1; then
-              echo "  ✅ Deleted run $run_id"
-              DELETED=$((DELETED + 1))
-            else
-              echo "  ⚠️ Failed to delete run $run_id (may have artifacts or still processing)"
-              FAILED=$((FAILED + 1))
-            fi
+              if gh api \
+                --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "/repos/${{ github.repository }}/actions/runs/$run_id" 2>&1; then
+                echo "    ✅ Deleted run $run_id"
+                TOTAL_DELETED=$((TOTAL_DELETED + 1))
+              else
+                echo "    ⚠️ Failed to delete run $run_id (may have artifacts or still processing)"
+                TOTAL_FAILED=$((TOTAL_FAILED + 1))
+              fi
 
-            # Rate limit: wait between deletions
-            sleep 2
-          done
+              # Rate limit: wait between deletions
+              sleep 2
+            done
+          fi
 
           echo ""
-          echo "📊 Cleanup Summary:"
-          echo "  ✅ Deleted: $DELETED runs"
-          echo "  ⚠️ Failed: $FAILED runs"
+          echo "📊 Overall Cleanup Summary:"
+          echo "  ✅ Total Deleted: $TOTAL_DELETED runs"
+          echo "  ⚠️ Total Failed: $TOTAL_FAILED runs"
         env:
           GH_TOKEN: ${{ secrets.WORKFLOW_TRIGGER_TOKEN }}
 
@@ -89,5 +122,9 @@ jobs:
           echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Cleanup completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflows cleaned:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌐 web-trigger.yml" >> $GITHUB_STEP_SUMMARY
+          echo "- 📅 daily-harvest-export.yml" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Note:** Only successful runs older than 1 hour are deleted." >> $GITHUB_STEP_SUMMARY
