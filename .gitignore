@@ -1,8 +1,44 @@
+# macOS
 .DS_Store
+
+# Environment
 .env
 .direnv
+.envrc.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing & Linting
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
 output/*
 debug/*.json
+logs/*.log
+
+# Documentation (local only)
 CLAUDE.md
 web-setup-instructions.md
 scripts/
