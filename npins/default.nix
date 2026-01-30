@@ -65,7 +65,9 @@ let
         if pkgs == null then
           {
             inherit (builtins) fetchTarball fetchurl;
-            # For some fucking reason, fetchGit has a different signature than the other builtin fetchers …
+            # Frustratingly, due to flakes and `fetchTree`, `fetchGit`
+            # has a different signature than the other builtin
+            # fetchers
             fetchGit = args: (builtins.fetchGit args).outPath;
           }
         else
@@ -95,7 +97,6 @@ let
               };
           };
 
-      # Dispatch to the correct code path based on the type
       path =
         if spec.type == "Git" then
           mkGitSource fetchers spec
@@ -145,6 +146,8 @@ let
             "https://github.com/${repository.owner}/${repository.repo}.git"
           else if repository.type == "GitLab" then
             "${repository.server}/${repository.repo_path}.git"
+          else if repository.type == "Forgejo" then
+            "${repository.server}/${repository.owner}/${repository.repo}.git"
           else
             throw "Unrecognized repository type ${repository.type}";
         urlToName =
@@ -229,7 +232,7 @@ mkFunctor (
       if builtins.isPath input then
         # while `readFile` will throw an error anyways if the path doesn't exist,
         # we still need to check beforehand because *our* error can be caught but not the one from the builtin
-        # *piegames sighs*
+        # See: <https://git.lix.systems/lix-project/lix/issues/1098>
         if builtins.pathExists input then
           builtins.fromJSON (builtins.readFile input)
         else
