@@ -618,7 +618,12 @@ def add_summary_rows(df: pd.DataFrame) -> pd.DataFrame:
     if okr_hours > 0:
         summary_rows.append(create_summary_row("TOTAL OKR's & PDP's", okr_hours))
 
-    # 4. Total Hours (sum of all time entries)
+    # 4. Total Learning & Development Hours
+    learning_hours = df[df['Task'] == "Learning & Development"]['Hours'].sum()
+    if learning_hours > 0:
+        summary_rows.append(create_summary_row("TOTAL Learning & Development", learning_hours))
+
+    # 5. Total Hours (sum of all time entries)
     total_hours = df['Hours'].sum()
     if total_hours > 0:
         summary_rows.append(create_summary_row('TOTAL HOURS', total_hours))
@@ -628,6 +633,98 @@ def add_summary_rows(df: pd.DataFrame) -> pd.DataFrame:
         summary_df = pd.DataFrame(summary_rows)
         df = pd.concat([df, summary_df], ignore_index=True)
         console.print(f"[green]Added {len(summary_rows)} summary row(s) to the report[/green]")
+
+    return df
+
+
+def add_resume_section(df: pd.DataFrame, original_df: pd.DataFrame) -> pd.DataFrame:
+    """Add a resume section after the summary rows with formatted entry details.
+
+    Args:
+        df: DataFrame with summary rows already added
+        original_df: Original DataFrame with time entries (without summary rows)
+
+    Returns:
+        DataFrame with resume section appended
+    """
+    if original_df.empty:
+        return df
+
+    all_columns = df.columns.tolist()
+
+    def create_resume_row(text: str) -> Dict[str, Any]:
+        """Create a row with text only in the first column (Date/A)."""
+        row = {col: '' for col in all_columns}
+        row['Date'] = text
+        return row
+
+    resume_rows = []
+
+    # Add 3 empty separator rows
+    for _ in range(3):
+        resume_rows.append(create_resume_row(''))
+
+    # Group entries by date and format them
+    # Sort by date first
+    sorted_df = original_df.sort_values('Date')
+
+    # Group by date
+    grouped = sorted_df.groupby('Date')
+
+    previous_date = None
+    for date, group in grouped:
+        # Add blank line between different dates (except before first)
+        if previous_date is not None:
+            resume_rows.append(create_resume_row(''))
+
+        # Format date as "jan 26" style
+        try:
+            date_obj = datetime.strptime(date, '%Y-%m-%d')
+            formatted_date = date_obj.strftime('%b %d').lower()
+        except (ValueError, TypeError):
+            formatted_date = str(date).lower()
+
+        # Add each entry for this date
+        for _, entry in group.iterrows():
+            project_code = entry.get('Project Code', '') or ''
+            project_name = entry.get('Project', '') or ''
+            client_name = entry.get('Client', '') or ''
+            task_name = entry.get('Task', '') or ''
+            notes = entry.get('Notes', '') or ''
+            hours = entry.get('Hours', 0)
+
+            # Format hours with HOUR/HOURS
+            hours_str = f"{hours} HOUR" if hours == 1 else f"{hours} HOURS"
+
+            # Build the formatted line
+            # Format: {date} >>> [{project_code}] {project_name} ( {client} ) {task} ({notes}) - {hours}
+            parts = [f"{formatted_date}     >>> "]
+
+            if project_code:
+                parts.append(f"[{project_code}] ")
+
+            parts.append(f"{project_name}")
+
+            if client_name:
+                parts.append(f" ( {client_name} )")
+
+            parts.append(f" {task_name}")
+
+            if notes:
+                parts.append(f" ({notes})")
+
+            parts.append(f" - {hours_str}")
+
+            line = ''.join(parts)
+            resume_rows.append(create_resume_row(line))
+
+        previous_date = date
+
+    # Append resume rows to the DataFrame
+    if resume_rows:
+        resume_df = pd.DataFrame(resume_rows)
+        df = pd.concat([df, resume_df], ignore_index=True)
+        console.print(f"[green]Added resume section with {len(resume_rows) - 3} entry lines[/green]")
 
     return df
 
@@ -1070,8 +1167,14 @@ def main() -> None:
             # Convert the JSON data to a pandas DataFrame
             df = parse_time_entries(data)
 
+            # Keep a copy of original data for resume section
+            original_df = df.copy()
+
             # Add summary rows to the DataFrame
             df = add_summary_rows(df)
+
+            # Add resume section after summary rows
+            df = add_resume_section(df, original_df)
 
             # Write the DataFrame to CSV file
             with console.status(f"[bold blue]Writing CSV to {output_file}...") as status:
