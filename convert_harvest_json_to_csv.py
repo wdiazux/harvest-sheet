@@ -652,17 +652,23 @@ def add_resume_section(df: pd.DataFrame, original_df: pd.DataFrame) -> pd.DataFr
 
     all_columns = df.columns.tolist()
 
-    def create_resume_row(text: str) -> Dict[str, Any]:
+    def create_row(text: str) -> Dict[str, Any]:
         """Create a row with text only in the first column (Date/A)."""
         row = {col: '' for col in all_columns}
         row['Date'] = text
         return row
 
-    resume_rows = []
+    rows_to_add = []
 
     # Add 3 empty separator rows
     for _ in range(3):
-        resume_rows.append(create_resume_row(''))
+        rows_to_add.append(create_row(''))
+
+    # Add RESUME title row
+    rows_to_add.append(create_row('RESUME'))
+
+    # Build all resume content as a single string with newlines
+    resume_lines = []
 
     # Group entries by date and format them
     # Sort by date first
@@ -675,7 +681,7 @@ def add_resume_section(df: pd.DataFrame, original_df: pd.DataFrame) -> pd.DataFr
     for date, group in grouped:
         # Add blank line between different dates (except before first)
         if previous_date is not None:
-            resume_rows.append(create_resume_row(''))
+            resume_lines.append('')
 
         # Format date as "jan 26" style
         try:
@@ -716,15 +722,20 @@ def add_resume_section(df: pd.DataFrame, original_df: pd.DataFrame) -> pd.DataFr
             parts.append(f" - {hours_str}")
 
             line = ''.join(parts)
-            resume_rows.append(create_resume_row(line))
+            resume_lines.append(line)
 
         previous_date = date
 
-    # Append resume rows to the DataFrame
-    if resume_rows:
-        resume_df = pd.DataFrame(resume_rows)
+    # Add single cell with all resume content joined by newlines
+    if resume_lines:
+        resume_content = '\n'.join(resume_lines)
+        rows_to_add.append(create_row(resume_content))
+        console.print(f"[green]Added resume section with {len(resume_lines)} entries[/green]")
+
+    # Append rows to the DataFrame
+    if rows_to_add:
+        resume_df = pd.DataFrame(rows_to_add)
         df = pd.concat([df, resume_df], ignore_index=True)
-        console.print(f"[green]Added resume section with {len(resume_rows) - 3} entry lines[/green]")
 
     return df
 
