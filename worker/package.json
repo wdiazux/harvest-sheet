@@ -8,7 +8,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "jose": "^5.9.6"
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "vitest": "^2.1.8",
