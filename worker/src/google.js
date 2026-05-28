@@ -3,8 +3,9 @@ import { jwtVerify, createRemoteJWKSet } from "jose";
 const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 // Production resolver (cached by jose). Tests inject their own resolver.
+const _googleJwks = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
 export function googleJWKS() {
-  return createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/certs"));
+  return _googleJwks;
 }
 
 export async function verifyGoogleToken(idToken, clientId, jwksResolver) {

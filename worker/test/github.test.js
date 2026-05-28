@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { dispatchWorkflow } from "../src/github.js";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
+import { generateKeyPair, exportPKCS8 } from "jose";
+import { dispatchWorkflow, mintInstallationToken } from "../src/github.js";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -28,5 +29,37 @@ describe("dispatchWorkflow", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 422 }));
     const ok = await dispatchWorkflow(env, "t", { from_date: "x" });
     expect(ok).toBe(false);
+  });
+});
+
+describe("mintInstallationToken", () => {
+  let pkcs8;
+  const INSTALLATION_ID = "98765";
+  const appEnv = () => ({
+    GH_APP_ID: "12345",
+    GH_APP_INSTALLATION_ID: INSTALLATION_ID,
+    GH_APP_PRIVATE_KEY: pkcs8,
+  });
+
+  beforeAll(async () => {
+    const kp = await generateKeyPair("RS256");
+    pkcs8 = await exportPKCS8(kp.privateKey);
+  });
+
+  it("returns the installation token on success", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ token: "ghs_abc" }), { status: 201 })
+    );
+    const token = await mintInstallationToken(appEnv());
+    expect(token).toBe("ghs_abc");
+    const [url, opts] = spy.mock.calls[0];
+    expect(url).toContain(`/app/installations/${INSTALLATION_ID}/access_tokens`);
+    expect(opts.headers.Authorization).toMatch(/^Bearer /);
+  });
+
+  it("returns null on non-2xx", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("unauthorized", { status: 401 }));
+    const token = await mintInstallationToken(appEnv());
+    expect(token).toBeNull();
   });
 });
