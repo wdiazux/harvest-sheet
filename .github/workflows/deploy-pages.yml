@@ -20,41 +20,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Inject secrets and configuration
+      - name: Inject configuration
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
-          GITHUB_TOKEN_SECRET: ${{ secrets.WORKFLOW_TRIGGER_TOKEN }}
+          WORKER_URL: ${{ vars.WORKER_URL }}
           AVAILABLE_USERS: ${{ vars.AVAILABLE_USERS }}
         run: |
-          # Mask sensitive values
-          echo "::add-mask::$GOOGLE_CLIENT_ID"
-          echo "::add-mask::$GITHUB_TOKEN_SECRET"
-
-          # Verify secrets are available
-          if [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$GITHUB_TOKEN_SECRET" ]; then
-            echo "❌ Configuration error"
-            exit 1
+          if [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$WORKER_URL" ]; then
+            echo "Missing GOOGLE_CLIENT_ID or WORKER_URL"; exit 1
           fi
-
-          # Replace placeholders with actual values from secrets
-          sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/app.js
-          sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/index.html
-          sed -i "s|YOUR_GITHUB_TOKEN|${GITHUB_TOKEN_SECRET}|g" docs/app.js
-
-          # Verify replacements worked (silent check)
-          if grep -q "YOUR_GOOGLE_CLIENT_ID" docs/app.js || \
-             grep -q "YOUR_GOOGLE_CLIENT_ID" docs/index.html || \
-             grep -q "YOUR_GITHUB_TOKEN" docs/app.js; then
-            echo "❌ Configuration injection failed"
-            exit 1
+          sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/app.js docs/index.html
+          sed -i "s|YOUR_WORKER_URL|${WORKER_URL}|g" docs/app.js
+          if [ -n "$AVAILABLE_USERS" ]; then echo "$AVAILABLE_USERS" > docs/config.json; fi
+          if grep -q "YOUR_GOOGLE_CLIENT_ID\|YOUR_WORKER_URL" docs/app.js; then
+            echo "Injection failed"; exit 1
           fi
-
-          # Inject user configuration if provided
-          if [ ! -z "$AVAILABLE_USERS" ]; then
-            echo "$AVAILABLE_USERS" > docs/config.json
-          fi
-
-          echo "✅ Deployment configured"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
