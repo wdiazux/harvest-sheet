@@ -38,6 +38,9 @@ output/*
 debug/*.json
 logs/*.log
 
+# Git worktrees
+.worktrees/
+
 # Documentation (local only)
 CLAUDE.md
 web-setup-instructions.md
