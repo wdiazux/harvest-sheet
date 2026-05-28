@@ -21,5 +21,8 @@ let
   );
 in
 pkgs.mkShell {
-  buildInputs = [ pythonWithPackages ];
+  buildInputs = [
+    pythonWithPackages
+    pkgs.npins
+  ];
 }
