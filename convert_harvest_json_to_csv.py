@@ -473,7 +473,7 @@ def download_time_entries(account_id: str, auth_token: str, user_agent: str, fro
     # Fetch first page to get total pages
     try:
         with console.status("[bold green]Contacting Harvest API...") as status:
-            response = requests.get(base_url, headers=headers, params=params)
+            response = requests.get(base_url, headers=headers, params=params, timeout=(5, 30))
             response.raise_for_status()  # Raise exception for 4XX/5XX responses
             
             # Parse response data
@@ -503,7 +503,7 @@ def download_time_entries(account_id: str, auth_token: str, user_agent: str, fro
             for page in range(2, total_pages + 1):
                 try:
                     params['page'] = page
-                    response = requests.get(base_url, headers=headers, params=params)
+                    response = requests.get(base_url, headers=headers, params=params, timeout=(5, 30))
                     response.raise_for_status()
                     
                     # Add entries from this page

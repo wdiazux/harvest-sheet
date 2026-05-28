@@ -21,8 +21,8 @@ Extract time-tracking data from Harvest API and convert to CSV, with optional Go
 **Quick Start Web Interface:**
 1. Visit your GitHub Pages URL: `https://yourusername.github.io/harvest-report`
 2. Sign in with authorized Google account
-3. Generate secure parameters and manually trigger via GitHub Actions
-4. Download results from workflow artifacts
+3. Choose date range and options, then click **Generate Report**
+4. The request is verified by a Cloudflare Worker, which triggers the export workflow; follow progress in the **Actions** tab
 
 **Setup Guide**: [web-setup-instructions.md](web-setup-instructions.md)
 **Security Details**: [SECURITY-ANALYSIS.md](SECURITY-ANALYSIS.md)
@@ -44,14 +44,15 @@ Harvest Sheet includes **5 automated workflows** for complete automation and sec
 - **Setup**: Configure `USER_CREDENTIALS` JSON secret with all user details
 
 ### 2. 🌐 Web Interface Trigger (`web-trigger.yml`)
-- **Trigger**: `repository_dispatch` from web UI, or manual
+- **Trigger**: `workflow_dispatch`, invoked by a Cloudflare Worker on behalf of the web UI (or run manually)
 - **Purpose**: Handles secure export requests from the web interface
 - **Features**:
-  - Google OAuth 2.0 user authorization validation
+  - The static page holds no GitHub token; the Worker verifies the Google ID token, checks an email allow-list, and mints a short-lived GitHub App installation token to dispatch this workflow
   - Input sanitization and validation
   - Dynamic user credential loading from secrets
   - Parameterized date ranges and user selection
-- **Security**: Email whitelist, token hashing, CSRF protection
+- **Security**: Email whitelist enforced in the Worker, no client-side token
+- See [docs/README.md](docs/README.md) and [docs/plans/2026-05-28-secure-web-trigger-design.md](docs/plans/2026-05-28-secure-web-trigger-design.md) for the full design.
 
 ### 3. 📦 Build and Push Container (`build-and-push.yml`)
 - **Trigger**: Push to `main` branch (excluding docs), or manual
@@ -66,7 +67,7 @@ Harvest Sheet includes **5 automated workflows** for complete automation and sec
 - **Trigger**: Push to `main`, or manual
 - **Purpose**: Deploys secure web interface to GitHub Pages
 - **Features**:
-  - Injects OAuth Client ID and GitHub token into static files
+  - Injects only the (public) Google OAuth Client ID and the Cloudflare Worker URL into static files — no GitHub token is ever placed in the page
   - Loads user configuration from repository variables
   - Serves web UI at `https://username.github.io/harvest-sheet/`
 

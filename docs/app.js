@@ -1,14 +1,10 @@
 const CONFIG = {
     GOOGLE_CLIENT_ID: 'YOUR_GOOGLE_CLIENT_ID',
-    GITHUB_TOKEN: 'YOUR_GITHUB_TOKEN',
-    GITHUB_OWNER: 'wdiazux',
-    GITHUB_REPO: 'harvest-sheet',
-    GITHUB_API_BASE: 'https://api.github.com',
+    WORKER_URL: 'YOUR_WORKER_URL',   // injected at deploy, e.g. https://harvest-web-trigger.<acct>.workers.dev
     AVAILABLE_USERS: [] // Will be loaded from config.json
 };
 
 let currentUser = null;
-let currentJobId = null;
 
 // Load user configuration from config.json
 async function loadUserConfig() {
@@ -123,7 +119,6 @@ function setDefaultDates() {
 function signOut() {
     google.accounts.id.disableAutoSelect();
     currentUser = null;
-    currentJobId = null;
 
     document.getElementById('mainApp').classList.add('hidden');
     document.getElementById('authSection').classList.remove('hidden');
@@ -140,8 +135,6 @@ document.getElementById('harvestForm').addEventListener('submit', async function
     }
 
     const params = {
-        user_email: currentUser.email,
-        user_token: currentUser.token,
         from_date: document.getElementById('fromDate').value,
         to_date: document.getElementById('toDate').value,
         user_prefix: document.getElementById('userSelect').value,
@@ -161,136 +154,34 @@ async function triggerGitHubAction(params) {
     const runButton = document.getElementById('runButton');
     runButton.disabled = true;
     runButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Triggering workflow...';
-
     try {
-        const workflowParams = {
-            user_email: sanitizeInput(currentUser.email),
-            from_date: sanitizeInput(params.from_date),
-            to_date: sanitizeInput(params.to_date),
-            user_prefix: sanitizeInput(params.user_prefix),
-            upload_to_sheets: params.upload_to_sheets,
-            include_advanced_fields: params.include_advanced_fields,
-            // Combine auth fields into one to stay under 10 property limit
-            auth_data: `${await hashToken(currentUser.token)}:${generateCSRFToken()}:${Date.now()}`
-        };
-
-        // Trigger workflow via repository_dispatch
-        const requestBody = {
-            event_type: 'harvest-web-trigger',
-            client_payload: workflowParams
-        };
-
-        console.log('Triggering workflow with:', requestBody);
-
-        const response = await fetch(`${CONFIG.GITHUB_API_BASE}/repos/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/dispatches`, {
+        const res = await fetch(`${CONFIG.WORKER_URL}/trigger`, {
             method: 'POST',
-            headers: {
-                'Accept': 'application/vnd.github.v3+json',
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${CONFIG.GITHUB_TOKEN}`
-            },
-            body: JSON.stringify(requestBody)
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                google_id_token: currentUser.token,           // Google ID token (response.credential)
+                from_date: params.from_date,
+                to_date: params.to_date,
+                user_prefix: params.user_prefix,
+                upload_to_sheets: params.upload_to_sheets,
+                include_advanced_fields: params.include_advanced_fields,
+            }),
         });
-
-        console.log('Response status:', response.status);
-
-        if (response.status === 204) {
-            showJobStatus('✅ Workflow triggered successfully! Check the Actions tab for progress.', 'success');
-            document.getElementById('jobStatus').classList.remove('hidden');
-
-            // Show link to actions page
-            setTimeout(() => {
-                const actionsUrl = `https://github.com/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/actions`;
-                document.getElementById('statusContent').innerHTML += `
-                    <div class="mt-3">
-                        <a href="${actionsUrl}" target="_blank" class="btn btn-primary">
-                            <i class="fas fa-external-link-alt"></i> View on GitHub Actions
-                        </a>
-                    </div>
-                `;
-            }, 1000);
+        if (res.status === 202) {
+            showJobStatus('✅ Workflow triggered. Check the Actions tab for progress.', 'success');
+        } else if (res.status === 401) {
+            showJobStatus('❌ Sign-in could not be verified. Please sign in again.', 'error');
+        } else if (res.status === 403) {
+            showJobStatus('❌ Your account is not authorized.', 'error');
         } else {
-            const errorText = await response.text();
-            console.error('GitHub API error:', errorText);
-            throw new Error(`GitHub API returned status ${response.status}: ${errorText}`);
+            showJobStatus('❌ Could not start the job. Please try again later.', 'error');
         }
-
-    } catch (error) {
-        console.error('Error triggering workflow:', error);
-        showJobStatus('❌ Failed to trigger workflow. Please try again or check your permissions.', 'error');
+    } catch (e) {
+        showJobStatus('❌ Network error. Please try again.', 'error');
     } finally {
         runButton.disabled = false;
         runButton.innerHTML = '<i class="fas fa-play"></i> Generate Report';
     }
-}
-
-function sanitizeInput(input) {
-    if (typeof input !== 'string') return input;
-
-    return input
-        .replace(/[<>'"&]/g, '')
-        .replace(/[;|&$`]/g, '')
-        .trim()
-        .substring(0, 100);
-}
-function generateCSRFToken() {
-    const array = new Uint32Array(4);
-    crypto.getRandomValues(array);
-    return Array.from(array, dec => dec.toString(16)).join('');
-}
-
-async function hashToken(token) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(token + Date.now());
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-}
-
-function showManualTriggerInstructions(params) {
-    const instructions = `
-        <div class="alert alert-info">
-            <h5><i class="fas fa-info-circle"></i> Manual Trigger Required</h5>
-            <p>For security, please manually trigger the workflow:</p>
-            <ol>
-                <li>Go to <a href="https://github.com/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/actions/workflows/web-trigger.yml" target="_blank">GitHub Actions</a></li>
-                <li>Click "Run workflow"</li>
-                <li>Fill in the parameters below:</li>
-            </ol>
-        </div>
-        <div class="card">
-            <div class="card-header">
-                <h6>Workflow Parameters</h6>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <strong>user_email:</strong> ${params.user_email}<br>
-                        <strong>from_date:</strong> ${params.from_date}<br>
-                        <strong>to_date:</strong> ${params.to_date}<br>
-                        <strong>user_prefix:</strong> ${params.user_prefix}
-                    </div>
-                    <div class="col-md-6">
-                        <strong>upload_to_sheets:</strong> ${params.upload_to_sheets}<br>
-                        <strong>include_advanced_fields:</strong> ${params.include_advanced_fields}
-                    </div>
-                </div>
-                <div class="mt-3">
-                    <small class="text-muted">
-                        Security tokens: ${params.user_token_hash} | ${params.csrf_token}
-                    </small>
-                </div>
-            </div>
-        </div>
-        <div class="mt-3">
-            <a href="https://github.com/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/actions/workflows/web-trigger.yml"
-               target="_blank" class="btn btn-primary">
-                <i class="fas fa-external-link-alt"></i> Go to GitHub Actions
-            </a>
-        </div>
-    `;
-
-    showJobStatus(instructions, 'running');
 }
 
 function showJobStatus(message, status) {
@@ -300,25 +191,6 @@ function showJobStatus(message, status) {
     statusDiv.classList.remove('hidden');
     contentDiv.innerHTML = `<div class="status-${status}">${message}</div>`;
     statusDiv.scrollIntoView({ behavior: 'smooth' });
-}
-
-async function checkJobStatus() {
-    const refreshButton = document.getElementById('refreshButton');
-    refreshButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
-
-    try {
-        setTimeout(() => {
-            showJobStatus('Job completed successfully!', 'success');
-            document.getElementById('downloadButton').classList.remove('hidden');
-            document.getElementById('downloadButton').href = `https://github.com/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/actions`;
-            refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
-        }, 2000);
-
-    } catch (error) {
-        console.error('Error checking status:', error);
-        showJobStatus('Error checking job status', 'error');
-        refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
-    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {

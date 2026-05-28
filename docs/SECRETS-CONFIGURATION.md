@@ -1,104 +1,118 @@
-# GitHub Secrets Configuration Guide
+# Secrets & Variables Configuration Guide
 
-This document provides detailed instructions for configuring all required GitHub Secrets for the Harvest Report project.
+This document describes every secret and variable the Harvest Report project needs, split
+across the three places they now live:
+
+- **(a) Cloudflare Worker secrets** — verify sign-in, authorize callers, and trigger the
+  workflow. Set with `wrangler secret put`; never committed.
+- **(b) GitHub repository secrets** — used by the GitHub Actions export.
+- **(c) GitHub repository variables** — non-sensitive config.
+
+> **Why three places now?** The web interface no longer triggers the workflow from the
+> browser. A static page cannot hold a secret or verify identity, so a Cloudflare Worker
+> owns authentication and the GitHub credential. See
+> [`docs/plans/2026-05-28-secure-web-trigger-design.md`](plans/2026-05-28-secure-web-trigger-design.md)
+> and Phase E of
+> [`docs/plans/2026-05-28-secure-web-trigger-implementation.md`](plans/2026-05-28-secure-web-trigger-implementation.md).
 
 ---
 
-## 📍 Where to Add Secrets
+## (a) Cloudflare Worker Secrets
 
-**GitHub Repository Settings:**
+Set inside the `worker/` directory. These are **never** placed in `wrangler.toml` or any
+committed file:
+
+```bash
+cd worker
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GH_APP_ID
+npx wrangler secret put GH_APP_INSTALLATION_ID
+npx wrangler secret put GH_APP_PRIVATE_KEY      # paste full PKCS8 PEM
+npx wrangler secret put ALLOWED_EMAILS          # comma-separated emails
 ```
-https://github.com/YOUR_OWNER/YOUR_REPO/settings/secrets/actions
+
+Non-secret Worker config (owner, repo, workflow file/ref, allowed origin) lives in
+`worker/wrangler.toml` under `[vars]` and is safe to commit.
+
+### `GOOGLE_CLIENT_ID`
+**Description:** Google OAuth 2.0 Client ID. The Worker uses it as the expected `aud`
+(audience) when verifying the Google ID token.
+
+**Where to get it:** [Google Cloud Console](https://console.cloud.google.com/) →
+**APIs & Services → Credentials** → your OAuth 2.0 Client ID (format
+`xxxxx.apps.googleusercontent.com`).
+
+**Notes:** This is the same value as the `OAUTH_CLIENT_ID` repo secret (it is a public
+identifier — the page ships it anyway). It is duplicated here because the Worker needs it
+server-side to validate tokens.
+
+### `GH_APP_ID`
+**Description:** The numeric App ID of the GitHub App that triggers the workflow.
+
+**Where to get it:** GitHub → Settings → Developer settings → GitHub Apps → your App
+(shown as **App ID**).
+
+### `GH_APP_INSTALLATION_ID`
+**Description:** The installation ID for this App on the repository. The Worker uses it to
+mint an installation access token.
+
+**Where to get it:** From the install URL after installing the App on the repo:
+`https://github.com/settings/installations/<INSTALLATION_ID>`.
+
+### `GH_APP_PRIVATE_KEY`
+**Description:** The GitHub App private key in **PKCS8 PEM** format (`BEGIN PRIVATE KEY`),
+used to sign the App JWT.
+
+**How to prepare it:** GitHub generates a PKCS1 `.pem`; convert it to PKCS8 for Web Crypto:
+```bash
+openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt \
+  -in app.private-key.pem -out app.pkcs8.pem
 ```
+Paste the full contents of `app.pkcs8.pem` (including BEGIN/END lines) when prompted.
 
-Click **"New repository secret"** for each secret below.
+**Notes:** Never commit this key. It only exists as a Worker secret.
 
----
-
-## 🔐 Required Secrets (9 Total)
-
-### 1. Authentication & Authorization
-
-#### `ALLOWED_USERS`
-**Description:** Comma-separated list of authorized email addresses that can access the web interface
+### `ALLOWED_EMAILS`
+**Description:** Comma-separated list of Google account emails authorized to trigger the
+export. **This is now the single source of authorization** — checked by the Worker after
+the Google ID token is verified.
 
 **Format:**
-```
-email1@domain.com,email2@domain.com,email3@domain.com
-```
-
-**Example:**
 ```
 user1@example.com,user2@example.com,user3@example.com
 ```
 
-**Notes:**
-- No spaces between emails
-- Must match the Google accounts used to sign in
-- Case-sensitive
-- Add/remove users by updating this secret
+**Notes:** Matching is case-insensitive and trimmed. Add/remove users by updating this
+Worker secret (`wrangler secret put ALLOWED_EMAILS`).
 
 ---
 
-#### `OAUTH_CLIENT_ID`
-**Description:** Google OAuth 2.0 Client ID for web interface authentication
+## (b) GitHub Repository Secrets
 
-**Where to get it:**
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Navigate to: **APIs & Services → Credentials**
-3. Find your OAuth 2.0 Client ID
-4. Copy the **Client ID** (format: `xxxxx.apps.googleusercontent.com`)
+**Location:** `https://github.com/YOUR_OWNER/YOUR_REPO/settings/secrets/actions`
+
+These are consumed by the GitHub Actions export workflows.
+
+### `OAUTH_CLIENT_ID`
+**Description:** Google OAuth 2.0 Client ID, injected into the static page at deploy time
+by `deploy-pages.yml` so the Google Sign-In button works.
 
 **Format:**
 ```
 123456789012-abcdefghijklmnopqrstuvwxyz123456.apps.googleusercontent.com
 ```
 
-**Notes:**
-- This is a **public identifier** (safe to expose in client-side code)
-- Do NOT use the Client Secret here
-- Must match the Client ID configured in your Google Cloud project
+**Notes:** Public identifier (safe in client-side code). Same value as the Worker's
+`GOOGLE_CLIENT_ID`. Do **not** use the Client *Secret* here.
 
 ---
 
-#### `WORKFLOW_TRIGGER_TOKEN`
-**Description:** GitHub Personal Access Token (PAT) for triggering workflows from the web interface
+### Google Service Account (5 secrets)
 
-**How to create:**
-1. Go to [GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
-2. Click **"Generate new token (classic)"**
-3. Name: `Harvest Sheet Workflow Trigger`
-4. Expiration: Choose your preferred duration
-5. Select scopes:
-   - ✅ `repo` (Full control of private repositories)
-   - ✅ `workflow` (Update GitHub Action workflows)
-6. Click **"Generate token"**
-7. Copy the token (starts with `ghp_`)
+These authenticate the export to the Google Sheets API. Create a Service Account in
+[Google Cloud Console](https://console.cloud.google.com/), enable the **Google Sheets
+API**, and download the JSON key. Your JSON key looks like:
 
-**Format:**
-```
-ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-**Security Notes:**
-- Store this token securely - you can't view it again
-- Regenerate periodically (recommended: every 90 days)
-- If compromised, revoke immediately and generate a new one
-
----
-
-### 2. Google Service Account (5 secrets)
-
-These secrets authenticate your application to Google Sheets API.
-
-#### Prerequisites:
-1. Create a Service Account in [Google Cloud Console](https://console.cloud.google.com/)
-2. Enable **Google Sheets API** for your project
-3. Download the JSON key file
-
-#### How to extract values from JSON key file:
-
-**Your JSON key looks like:**
 ```json
 {
   "type": "service_account",
@@ -106,95 +120,40 @@ These secrets authenticate your application to Google Sheets API.
   "private_key_id": "abc123def456...",
   "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEF...\n-----END PRIVATE KEY-----\n",
   "client_email": "your-service-account@your-project.iam.gserviceaccount.com",
-  "client_id": "123456789012345678901",
-  ...
+  "client_id": "123456789012345678901"
 }
 ```
 
----
-
 #### `GOOGLE_SA_PROJECT_ID`
-**Description:** Google Cloud project ID
-
-**Extract from JSON:**
-```json
-"project_id": "your-project-123456"
-```
-
-**Value to set:** `your-project-123456`
-
----
+Google Cloud project ID — from `"project_id"`.
 
 #### `GOOGLE_SA_PRIVATE_KEY_ID`
-**Description:** Service account private key identifier
-
-**Extract from JSON:**
-```json
-"private_key_id": "abc123def456ghi789jkl012mno345pqr678stu9"
-```
-
-**Value to set:** `abc123def456ghi789jkl012mno345pqr678stu9`
-
----
+Service account private key identifier — from `"private_key_id"`.
 
 #### `GOOGLE_SA_PRIVATE_KEY`
-**Description:** Service account private key (PEM format)
+Service account private key (PEM) — from `"private_key"`.
 
-**Extract from JSON:**
-```json
-"private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEF...\n-----END PRIVATE KEY-----\n"
-```
-
-**⚠️ IMPORTANT:** Copy the **entire value** including:
-- `-----BEGIN PRIVATE KEY-----`
-- All the encoded key content
-- `-----END PRIVATE KEY-----`
-- Keep the `\n` characters (they represent newlines)
-
-**Example value:**
-```
------BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n
-```
+**⚠️ IMPORTANT:** Copy the **entire value** including the `-----BEGIN PRIVATE KEY-----`
+and `-----END PRIVATE KEY-----` markers, and keep the `\n` characters (they represent
+newlines).
 
 **Common mistakes:**
-- ❌ Removing the `\n` characters → Will cause authentication to fail
-- ❌ Copying without BEGIN/END markers → Invalid key format
-- ❌ Adding extra spaces or line breaks → Key corruption
-
----
+- ❌ Removing the `\n` characters → authentication fails
+- ❌ Omitting the BEGIN/END markers → invalid key format
+- ❌ Adding extra spaces or line breaks → key corruption
 
 #### `GOOGLE_SA_CLIENT_EMAIL`
-**Description:** Service account email address
-
-**Extract from JSON:**
-```json
-"client_email": "service-account-name@your-project.iam.gserviceaccount.com"
-```
-
-**Value to set:** `service-account-name@your-project.iam.gserviceaccount.com`
-
-**Notes:**
-- Share your Google Sheets with this email address (Editor permission)
-- Format: `name@project-id.iam.gserviceaccount.com`
-
----
+Service account email — from `"client_email"`. Share your Google Sheets with this address
+(Editor permission).
 
 #### `GOOGLE_SA_CLIENT_ID`
-**Description:** Service account client ID (numeric)
-
-**Extract from JSON:**
-```json
-"client_id": "123456789012345678901"
-```
-
-**Value to set:** `123456789012345678901`
+Service account numeric client ID — from `"client_id"`.
 
 ---
 
-### 3. User Credentials (Consolidated)
-
-#### `USER_CREDENTIALS`
-**Description:** JSON object containing all user-specific Harvest and Google Sheets credentials
+### `USER_CREDENTIALS`
+**Description:** JSON object containing all user-specific Harvest and Google Sheets
+credentials.
 
 **Format:**
 ```json
@@ -226,53 +185,78 @@ These secrets authenticate your application to Google Sheets API.
 
 | Field | Description | Where to find |
 |-------|-------------|---------------|
-| `prefix` | User identifier (UPPERCASE_FORMAT) | Choose a unique identifier |
+| `prefix` | User identifier (UPPERCASE_FORMAT) | Choose a unique identifier; must match `AVAILABLE_USERS` |
 | `harvest_account_id` | Harvest account ID | Harvest Settings → Account |
 | `harvest_auth_token` | Harvest Personal Access Token | Harvest Settings → Developers → Create New Token |
 | `harvest_user_agent` | User email (for API identification) | User's email address |
 | `harvest_user_id` | Harvest user ID (optional filter) | Harvest API or user profile |
-| `google_sheet_id` | Target Google Sheet ID | From Sheet URL |
+| `google_sheet_id` | Target Google Sheet ID | From the Sheet URL |
 | `google_sheet_tab_name` | Sheet tab/worksheet name | Tab name in Google Sheet |
 
-**How to extract Google Sheet ID:**
+**How to extract a Google Sheet ID:**
 ```
 https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz-EXAMPLE_ID/edit
                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                                       This is your google_sheet_id
 ```
 
-**How to create Harvest Personal Access Token:**
-1. Log in to Harvest
-2. Go to: **Settings → Developers → Personal Access Tokens**
-3. Click **"Create New Personal Access Token"**
-4. Name: `Harvest Report Export`
-5. Copy the token (format: `USERID.pt.xxxxxxxxxxxx`)
+**How to create a Harvest Personal Access Token:**
+1. Log in to Harvest → **Settings → Developers → Personal Access Tokens**
+2. Click **"Create New Personal Access Token"**, name it (e.g. `Harvest Report Export`)
+3. Copy the token (format `USERID.pt.xxxxxxxxxxxx`)
 
 **Adding a new user:**
-1. Copy an existing user object in the JSON
-2. Update all fields with the new user's information
-3. Choose a unique `prefix` (e.g., `USER_THREE`)
-4. Update the secret in GitHub
-5. Add the user's email to `ALLOWED_USERS` secret
-
-**Notes:**
-- JSON must be valid (use [JSONLint](https://jsonlint.com/) to validate)
-- All users in the same Harvest account share the same `harvest_account_id`
-- Each user needs their own Personal Access Token
-- Multiple users can write to the same Google Sheet (different tabs)
+1. Add a user object to this JSON and choose a unique `prefix`.
+2. Add a matching entry to the `AVAILABLE_USERS` variable.
+3. Add the user's email to the Worker's `ALLOWED_EMAILS` secret so they can sign in.
 
 **Used by workflows:**
-- `daily-harvest-export.yml` - Processes ALL users in the JSON automatically
-- `web-trigger.yml` - Processes users based on web interface selection
+- `daily-harvest-export.yml` — processes ALL users in the JSON automatically.
+- `web-trigger.yml` — processes the user selected in the web interface.
 
 ---
 
-## 📊 GitHub Variables (Repository Variables)
+### `WORKFLOW_TRIGGER_TOKEN` (RETIRED — revoke and delete)
+**Description:** A GitHub PAT formerly consumed by `cleanup-logs.yml` to delete old
+workflow run logs via the GitHub API.
+
+**⚠️ This secret has NO remaining consumer.** It previously triggered the export and was
+injected into the web page (that insecure flow embedded a `repo`-scoped PAT in `app.js` and
+has been removed; the web trigger now goes through the Cloudflare Worker + GitHub App). Its
+last use was `cleanup-logs.yml`, which now authenticates with the built-in
+`secrets.GITHUB_TOKEN` (the job's `permissions: actions: write` allows deleting workflow
+runs in this repo). **Revoke this PAT and delete the repo secret** — nothing depends on it
+anymore.
+
+---
+
+#### Deprecated / removable: `ALLOWED_USERS`
+The `ALLOWED_USERS` repo secret is **no longer referenced by any workflow.** Authorization
+now happens in the Cloudflare Worker via `ALLOWED_EMAILS`. If it still exists in the repo,
+it is safe to delete.
+
+---
+
+## (c) GitHub Repository Variables
 
 **Location:** `https://github.com/YOUR_OWNER/YOUR_REPO/settings/variables/actions`
 
+### `WORKER_URL`
+**Description:** The base URL of the deployed Cloudflare Worker (e.g.
+`https://harvest-web-trigger.<account>.workers.dev`). Injected into `docs/app.js` at deploy
+time so the page can POST to `${WORKER_URL}/trigger`.
+
+**Notes:**
+- Non-sensitive (the endpoint is public; it only acts on a valid Google token).
+- `deploy-pages.yml` requires it to be set and to start with `https://`.
+
+```bash
+gh variable set WORKER_URL --body "https://harvest-web-trigger.<account>.workers.dev" --repo YOUR_OWNER/YOUR_REPO
+```
+
 ### `AVAILABLE_USERS`
-**Description:** JSON object with user options for the web interface dropdown
+**Description:** JSON object with the user options for the web interface dropdown. Written
+to `docs/config.json` at deploy time.
 
 **Format:**
 ```json
@@ -280,222 +264,135 @@ https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz-EXAMPLE_ID/ed
   "users": [
     { "value": "all", "label": "All Users" },
     { "value": "USER_ONE", "label": "John Smith" },
-    { "value": "USER_TWO", "label": "Jane Doe" },
-    { "value": "USER_THREE", "label": "Bob Johnson" }
+    { "value": "USER_TWO", "label": "Jane Doe" }
   ]
 }
 ```
 
 **Field Descriptions:**
-- `value`: Must match the `prefix` in `USER_CREDENTIALS` secret
-- `label`: Display name shown in the web interface dropdown
-- First entry should always be `"all"` for processing all users
+- `value`: must match a `prefix` in `USER_CREDENTIALS` (or `"all"`).
+- `label`: display name shown in the dropdown.
+- The first entry should be `"all"` for processing all users.
 
-**Notes:**
-- This is a **variable**, not a secret (non-sensitive)
-- Used to populate the user dropdown in the web interface
-- Add new entries when adding users to `USER_CREDENTIALS`
+### `AUTO_DELETE_LOGS` (optional)
+**Description:** Enables/disables automatic workflow log deletion in `cleanup-logs.yml`.
 
----
+**Default:** Enabled if unset.
 
-### `AUTO_DELETE_LOGS` (Optional)
-**Description:** Enable/disable automatic workflow log deletion
-
-**Default:** Enabled (if not set, defaults to `true`)
-
-**Allowed values:**
-- `true` - Enable automatic log deletion (recommended for public repos)
-- `false` - Disable automatic log deletion
-- `1` - Enable (numeric format)
-- `0` - Disable (numeric format)
+**Allowed values:** `true`/`false` (or `1`/`0`).
 
 **Behavior when enabled:**
-- Deletes successful workflow logs older than 1 hour
-- Runs automatically every 6 hours via scheduled workflow
-- Preserves artifacts (CSV/JSON files) for 30 days
-- Only affects `web-trigger.yml` workflow logs
-- Does not delete failed runs (for debugging)
+- Deletes successful runs older than 1 hour for `web-trigger.yml` and
+  `daily-harvest-export.yml`.
+- Runs every 6 hours via cron; does not delete failed runs.
 
-**Why use this:**
-- **Public repositories**: Prevents potential information disclosure in logs
-- **Privacy**: Removes execution history while preserving output files
-- **Compliance**: Helps meet data retention policies
-
-**How to set:**
 ```bash
-# Enable (recommended)
 gh variable set AUTO_DELETE_LOGS --body "true" --repo YOUR_OWNER/YOUR_REPO
-
-# Disable
-gh variable set AUTO_DELETE_LOGS --body "false" --repo YOUR_OWNER/YOUR_REPO
 ```
 
 ---
 
 ## 🔒 Security Features & Best Practices
 
-### Security Implementation
+### Where authorization happens now
+1. The page obtains a Google ID token (proof of identity only).
+2. The Cloudflare Worker verifies that token (signature, audience = `GOOGLE_CLIENT_ID`,
+   issuer, expiry, `email_verified`).
+3. The Worker checks the email against `ALLOWED_EMAILS` (the single allow-list).
+4. The Worker mints a short-lived GitHub App installation token and calls
+   `workflow_dispatch`.
 
-This project implements **defense-in-depth** security for public repositories:
+There is no client-supplied "I am authorized" claim trusted by the workflow, and no GitHub
+token in the browser.
 
-#### 1. Secret Masking
-All workflows use GitHub Actions secret masking to prevent accidental exposure:
+### Secret masking & log hygiene
+The export workflow masks credentials and suppresses script output:
 ```yaml
-echo "::add-mask::$USER_EMAIL"
-echo "::add-mask::$TOKEN_HASH"
-echo "::add-mask::$GOOGLE_CLIENT_ID"
+echo "::add-mask::$GOOGLE_SA_PRIVATE_KEY"
+# ... and each user credential field
+python convert_harvest_json_to_csv.py $ARGS > /dev/null 2>&1
 ```
-- Automatically replaces masked values with `***` in logs
-- Prevents secrets from appearing in workflow output
-- Applied to emails, tokens, and OAuth credentials
+`cleanup-logs.yml` deletes successful runs older than 1 hour as defense-in-depth.
 
-#### 2. Minimal Logging
-Workflows minimize information disclosure in public logs:
-- Generic error messages (e.g., "Validation failed" instead of specific details)
-- No echoing of user emails, dates, or parameters
-- Script output redirected to artifacts (not console)
-- Job summaries show only completion status
+### Secret rotation schedule
+- **Harvest tokens** (`USER_CREDENTIALS`): every 90 days
+- **GitHub App private key** (`GH_APP_PRIVATE_KEY`): periodically; regenerate in the App
+  settings and update the Worker secret
+- **Google Service Account** (`GOOGLE_SA_*`): annually or when compromised
+- **OAuth Client ID**: only when compromised
 
-#### 3. Automatic Log Cleanup
-The `cleanup-logs.yml` workflow provides automated log deletion:
-- Runs every 6 hours via cron schedule
-- Deletes successful runs older than 1 hour
-- Preserves artifacts (CSV/JSON files) for 30 days
-- Controlled by `AUTO_DELETE_LOGS` variable (enabled by default)
-- Separate workflow to avoid self-deletion conflicts
+### Access control
+- Limit repository collaborators (any collaborator can read Actions secrets).
+- The GitHub App has **Actions: write** on this one repo only — least privilege.
+- Enable two-factor authentication on GitHub and Cloudflare accounts.
+- Review `ALLOWED_EMAILS` regularly.
 
-#### 4. Server-Side Authorization
-All requests are validated on GitHub's servers:
-- Email validated against `ALLOWED_USERS` secret
-- Validation in GitHub Actions (not client-side)
-- OAuth token hash verified (never plain text)
-- CSRF protection included
-
-#### 5. Consolidated Secrets
-Single `USER_CREDENTIALS` JSON secret:
-- All user credentials in one encrypted secret
-- Reduces secret sprawl
-- Easier to manage and rotate
-- Dynamic loading per workflow run
-
-### Security Best Practices
-
-#### 1. Secret Rotation Schedule
-- **Harvest tokens**: Every 90 days
-- **GitHub PAT**: Every 90 days
-- **Google Service Account**: Annually or when compromised
-- **OAuth Client ID**: Only when compromised
-
-#### 2. Access Control
-- Limit GitHub repository access to authorized personnel only
-- Use GitHub's **secret scanning** feature (enabled by default)
-- Enable **two-factor authentication** for all GitHub accounts
-- Regularly audit `ALLOWED_USERS` list
-
-#### 3. Validation & Testing
-After setting all secrets, verify they work:
-
-```bash
-# Check secret names are set
-gh secret list --repo YOUR_OWNER/YOUR_REPO
-
-# Trigger a test workflow via the web interface
-# Go to: https://YOUR_OWNER.github.io/YOUR_REPO/
-# Sign in and run a test report
-```
-
-#### 4. Backup & Recovery
-- Keep a secure backup of all secrets in a password manager (e.g., 1Password, LastPass)
-- Store the Google Service Account JSON key file securely
-- Document who has access to secrets
-- Test recovery process periodically
-
-#### 5. Incident Response
+### Incident response
 If a secret is compromised:
-1. **Immediate**: Rotate the compromised secret
-2. **Update**: Change secret in both GitHub and source (Google/Harvest)
-3. **Audit**: Check logs for unauthorized access
-4. **Review**: Verify no other secrets were exposed
-5. **Document**: Record incident and response actions
-
----
-
-## 🛠️ Helper Scripts
-
-### Generate secrets from .env file:
-```bash
-bash scripts/generate-gh-secrets.sh > add-secrets.sh
-bash add-secrets.sh
-```
-
-### Verify secret configuration:
-```bash
-bash scripts/check-secrets.sh
-```
+1. **Immediate:** rotate it (regenerate the App key / Harvest token / SA key as
+   applicable, and run `wrangler secret put` again for Worker secrets).
+2. **Update:** change it in both the source (Google/Harvest/GitHub) and where it is stored
+   (Worker secret or GitHub secret).
+3. **Audit:** review Actions runs and Worker logs for unauthorized activity.
+4. **Document:** record the incident and response.
 
 ---
 
 ## 📋 Quick Setup Checklist
 
-### Initial Setup
-- [ ] Create Google OAuth Client ID
-- [ ] Create GitHub Personal Access Token (with `repo` scope)
-- [ ] Create Google Service Account and download JSON key
-- [ ] Enable Google Sheets API
-- [ ] Share Google Sheets with service account email (Editor permission)
+### Cloudflare Worker (a)
+- [ ] Deploy the Worker (`npx wrangler deploy`); note the `*.workers.dev` URL
+- [ ] `wrangler secret put GOOGLE_CLIENT_ID`
+- [ ] `wrangler secret put GH_APP_ID`
+- [ ] `wrangler secret put GH_APP_INSTALLATION_ID`
+- [ ] `wrangler secret put GH_APP_PRIVATE_KEY` (PKCS8 PEM)
+- [ ] `wrangler secret put ALLOWED_EMAILS` (comma-separated)
 
-### Configure Secrets
-- [ ] Set `OAUTH_CLIENT_ID` secret
-- [ ] Set `WORKFLOW_TRIGGER_TOKEN` secret
-- [ ] Set `ALLOWED_USERS` secret (comma-separated emails)
-- [ ] Set 5 `GOOGLE_SA_*` secrets from JSON key:
-  - [ ] `GOOGLE_SA_PROJECT_ID`
-  - [ ] `GOOGLE_SA_PRIVATE_KEY_ID`
-  - [ ] `GOOGLE_SA_PRIVATE_KEY` (keep `\n` characters!)
-  - [ ] `GOOGLE_SA_CLIENT_EMAIL`
-  - [ ] `GOOGLE_SA_CLIENT_ID`
-- [ ] Set `USER_CREDENTIALS` secret with all users
+### GitHub repository secrets (b)
+- [ ] `OAUTH_CLIENT_ID`
+- [ ] `USER_CREDENTIALS`
+- [ ] 5 × `GOOGLE_SA_*` (`PROJECT_ID`, `PRIVATE_KEY_ID`, `PRIVATE_KEY` with `\n`,
+      `CLIENT_EMAIL`, `CLIENT_ID`)
+- [ ] Revoke `WORKFLOW_TRIGGER_TOKEN` PAT and delete the secret (retired — no longer used)
+- [ ] Delete `ALLOWED_USERS` if it still exists (deprecated)
 
-### Configure Variables
-- [ ] Set `AVAILABLE_USERS` variable (with `"users"` wrapper object)
-- [ ] (Optional) Set `AUTO_DELETE_LOGS` variable (defaults to enabled)
+### GitHub repository variables (c)
+- [ ] `WORKER_URL`
+- [ ] `AVAILABLE_USERS`
+- [ ] (optional) `AUTO_DELETE_LOGS`
 
-### Testing & Verification
-- [ ] Test web interface authentication (OAuth sign-in)
-- [ ] Test workflow trigger and report generation
-- [ ] Verify Google Sheets are updated
-- [ ] Verify artifacts are available for download
-- [ ] (Optional) Verify log cleanup runs after 6 hours
+### Verification
+- [ ] Allow-listed Google account signs in → workflow runs → Sheet updates
+- [ ] Non-allow-listed account → 403, no run
+- [ ] `gh secret list` / `gh variable list` show the expected names
 
 ---
 
 ## ❓ Troubleshooting
 
-### "Access denied" error
-- Check that user's email is in `ALLOWED_USERS` secret
-- Verify email matches exactly (case-sensitive)
-- Ensure no extra spaces in comma-separated list
+### "Sign-in could not be verified" (401)
+- The Google ID token is missing/expired/invalid, or the audience does not match.
+- Confirm the Worker's `GOOGLE_CLIENT_ID` equals the page's client ID
+  (`OAUTH_CLIENT_ID`).
 
-### "Invalid credentials" error
-- Verify `USER_CREDENTIALS` JSON is valid
-- Check Harvest token hasn't expired
-- Confirm `harvest_account_id` is correct
+### "Your account is not authorized" (403)
+- The verified email is not in the Worker's `ALLOWED_EMAILS`. Update that Worker secret.
 
-### "Google Sheets authentication failed"
-- Verify all 5 `GOOGLE_SA_*` secrets are set correctly
-- Check `GOOGLE_SA_PRIVATE_KEY` includes `\n` characters
-- Ensure service account has Editor access to the sheet
+### "Could not start the job" (502)
+- The Worker failed to mint the GitHub App token or to dispatch the workflow.
+- Check `GH_APP_ID`, `GH_APP_INSTALLATION_ID`, and `GH_APP_PRIVATE_KEY`, the App's
+  installation, and that it has **Actions: write**. Inspect the Worker logs.
 
-### "Workflow not triggering"
-- Check `WORKFLOW_TRIGGER_TOKEN` has correct scopes (`repo`, `workflow`)
-- Verify token hasn't expired
-- Confirm GitHub Actions are enabled for the repository
+### "Invalid credentials" / Sheet not updated
+- Verify `USER_CREDENTIALS` JSON is valid and tokens are current.
+- Verify all 5 `GOOGLE_SA_*` secrets (keep `\n` in the private key); confirm the service
+  account has Editor access to the Sheet.
 
 ---
 
 ## 📞 Support
 
 For issues or questions:
-1. Check the [Security Audit Report](../SECURITY-AUDIT.md)
-2. Review GitHub Actions logs
-3. Consult the [main README](../README.md)
+1. Review the design and implementation plans under `docs/plans/`.
+2. Check the GitHub Actions logs and the Cloudflare Worker logs.
+3. Consult the [main README](../README.md).

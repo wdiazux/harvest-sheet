@@ -1,0 +1,10 @@
+name = "harvest-web-trigger"
+main = "src/index.js"
+compatibility_date = "2026-05-01"
+
+[vars]
+GITHUB_OWNER = "wdiazux"
+GITHUB_REPO = "harvest-sheet"
+WORKFLOW_FILE = "web-trigger.yml"
+WORKFLOW_REF = "main"
+ALLOWED_ORIGIN = "https://wdiazux.github.io"
