@@ -20,6 +20,12 @@ export default {
     const url = new URL(request.url);
     if (request.method !== "POST" || url.pathname !== "/trigger") return json(env, 404, { error: "not found" });
 
+    if (env.RATE_LIMITER) {
+      const ip = request.headers.get("cf-connecting-ip") || "unknown";
+      const { success } = await env.RATE_LIMITER.limit({ key: ip });
+      if (!success) return json(env, 429, { error: "rate limited" });
+    }
+
     let body;
     try { body = await request.json(); } catch { return json(env, 400, { error: "bad json" }); }
 
