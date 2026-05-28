@@ -10,8 +10,7 @@ WORKFLOW_REF = "main"
 ALLOWED_ORIGIN = "https://wdiazux.github.io"
 
 # Built-in Workers rate limiting (free, no extra infra): 20 requests / 60s per client IP.
-[[unsafe.bindings]]
+[[ratelimits]]
 name = "RATE_LIMITER"
-type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
