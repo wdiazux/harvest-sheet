@@ -45,3 +45,8 @@ logs/*.log
 CLAUDE.md
 web-setup-instructions.md
 scripts/
+
+# Cloudflare Worker
+worker/node_modules/
+worker/.dev.vars
+worker/.wrangler/
