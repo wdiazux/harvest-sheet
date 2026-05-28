@@ -216,15 +216,17 @@ https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz-EXAMPLE_ID/ed
 
 ---
 
-### `WORKFLOW_TRIGGER_TOKEN` (log cleanup only)
-**Description:** A GitHub token consumed **only** by `cleanup-logs.yml` as `GH_TOKEN` to
-delete old workflow run logs via the GitHub API.
+### `WORKFLOW_TRIGGER_TOKEN` (RETIRED — revoke and delete)
+**Description:** A GitHub PAT formerly consumed by `cleanup-logs.yml` to delete old
+workflow run logs via the GitHub API.
 
-**⚠️ It no longer triggers the export and is no longer injected into the web page.** The
-old, insecure flow that embedded a `repo`-scoped PAT in `app.js` has been removed; the web
-trigger now goes through the Cloudflare Worker + GitHub App. If you do not use the log
-cleanup workflow, this secret can be removed and `cleanup-logs.yml` disabled. If you keep
-it, scope it minimally to what the cleanup API calls require, and rotate it periodically.
+**⚠️ This secret has NO remaining consumer.** It previously triggered the export and was
+injected into the web page (that insecure flow embedded a `repo`-scoped PAT in `app.js` and
+has been removed; the web trigger now goes through the Cloudflare Worker + GitHub App). Its
+last use was `cleanup-logs.yml`, which now authenticates with the built-in
+`secrets.GITHUB_TOKEN` (the job's `permissions: actions: write` allows deleting workflow
+runs in this repo). **Revoke this PAT and delete the repo secret** — nothing depends on it
+anymore.
 
 ---
 
@@ -316,7 +318,6 @@ python convert_harvest_json_to_csv.py $ARGS > /dev/null 2>&1
 - **Harvest tokens** (`USER_CREDENTIALS`): every 90 days
 - **GitHub App private key** (`GH_APP_PRIVATE_KEY`): periodically; regenerate in the App
   settings and update the Worker secret
-- **`WORKFLOW_TRIGGER_TOKEN`** (if used for cleanup): every 90 days
 - **Google Service Account** (`GOOGLE_SA_*`): annually or when compromised
 - **OAuth Client ID**: only when compromised
 
@@ -352,7 +353,7 @@ If a secret is compromised:
 - [ ] `USER_CREDENTIALS`
 - [ ] 5 × `GOOGLE_SA_*` (`PROJECT_ID`, `PRIVATE_KEY_ID`, `PRIVATE_KEY` with `\n`,
       `CLIENT_EMAIL`, `CLIENT_ID`)
-- [ ] (optional) `WORKFLOW_TRIGGER_TOKEN` — only if using `cleanup-logs.yml`
+- [ ] Revoke `WORKFLOW_TRIGGER_TOKEN` PAT and delete the secret (retired — no longer used)
 - [ ] Delete `ALLOWED_USERS` if it still exists (deprecated)
 
 ### GitHub repository variables (c)
