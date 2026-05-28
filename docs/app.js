@@ -5,7 +5,6 @@ const CONFIG = {
 };
 
 let currentUser = null;
-let currentJobId = null;
 
 // Load user configuration from config.json
 async function loadUserConfig() {
@@ -120,7 +119,6 @@ function setDefaultDates() {
 function signOut() {
     google.accounts.id.disableAutoSelect();
     currentUser = null;
-    currentJobId = null;
 
     document.getElementById('mainApp').classList.add('hidden');
     document.getElementById('authSection').classList.remove('hidden');

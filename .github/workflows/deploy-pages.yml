@@ -29,10 +29,14 @@ jobs:
           if [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$WORKER_URL" ]; then
             echo "Missing GOOGLE_CLIENT_ID or WORKER_URL"; exit 1
           fi
+          case "$WORKER_URL" in
+            https://*) ;;
+            *) echo "WORKER_URL must start with https://"; exit 1 ;;
+          esac
           sed -i "s|YOUR_GOOGLE_CLIENT_ID|${GOOGLE_CLIENT_ID}|g" docs/app.js docs/index.html
           sed -i "s|YOUR_WORKER_URL|${WORKER_URL}|g" docs/app.js
           if [ -n "$AVAILABLE_USERS" ]; then echo "$AVAILABLE_USERS" > docs/config.json; fi
-          if grep -q "YOUR_GOOGLE_CLIENT_ID\|YOUR_WORKER_URL" docs/app.js; then
+          if grep -q "YOUR_GOOGLE_CLIENT_ID\|YOUR_WORKER_URL" docs/app.js docs/index.html; then
             echo "Injection failed"; exit 1
           fi
 
