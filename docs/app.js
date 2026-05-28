@@ -193,25 +193,6 @@ function showJobStatus(message, status) {
     statusDiv.scrollIntoView({ behavior: 'smooth' });
 }
 
-async function checkJobStatus() {
-    const refreshButton = document.getElementById('refreshButton');
-    refreshButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
-
-    try {
-        setTimeout(() => {
-            showJobStatus('Job completed successfully!', 'success');
-            document.getElementById('downloadButton').classList.remove('hidden');
-            document.getElementById('downloadButton').href = 'https://github.com/wdiazux/harvest-sheet/actions';
-            refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
-        }, 2000);
-
-    } catch (error) {
-        console.error('Error checking status:', error);
-        showJobStatus('Error checking job status', 'error');
-        refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
-    }
-}
-
 document.addEventListener('DOMContentLoaded', function() {
     loadUserConfig(); // Load users first
     initGoogleAuth();
